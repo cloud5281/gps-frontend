@@ -38,7 +38,6 @@ class Config:
         stg = data.get("settings", {})
         self.PROJECT_NAME = stg.get("project_name")
         self.IS_PUSH = stg.get("is_push")
-        self.LOG_FILE = stg.get("log_file")
         self.MAP_URL = stg.get("map_url")
 
         # --- 衍生變數 (自動生成) ---

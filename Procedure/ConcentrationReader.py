@@ -60,4 +60,4 @@ class ConcentrationReader:
     def run(self):
         self.running = True
         threading.Thread(target=self._producer, daemon=True).start()
-        logger.info(f"🚀 開始處理 Conc 數據")
+        logger.info(f"🚀 開始處理 Conc 數據...")

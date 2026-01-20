@@ -1,5 +1,5 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-import { getDatabase, ref, onValue, onChildAdded } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+import { getDatabase, ref, onValue, onChildAdded, set } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
 
 /**
  * 1. 設定管理 (Configuration)
@@ -236,7 +236,20 @@ class UIManager {
     }
 
     toggleRecordingState() {
+        // 取得 Firebase 資料庫實體 (假設已經在 main 函式初始化，這裡我們透過全域變數或屬性存取)
+        // 為了方便，我們在 UIManager 裡面存取 db 實體。
+        // ★ 注意：請確保你的 main() 函式有把 db 傳給 uiManager，或者在這裡重新獲取
+        // 最簡單的方法：直接在檔案全域 scope 宣告 db，或是在這裡用 getDatabase()
+        const db = getDatabase(); 
+        const cmdRef = ref(db, `${Config.projectId}/control/command`);
+
         if (!this.isRecording) {
+            // 1. 發送指令給後端 (Python)
+            set(cmdRef, "start").then(() => {
+                console.log("已發送 Start 指令");
+            }).catch((err) => alert("發送指令失敗: " + err));
+
+            // 2. UI 變更
             this.isRecording = true;
             this.els.btnUpload.classList.add('hidden');
             this.els.btnDownload.classList.add('hidden');
@@ -244,6 +257,12 @@ class UIManager {
             this.els.btnStart.innerText = "停止";
             this.els.btnStart.classList.add('btn-stop');
         } else {
+            // 1. 發送指令給後端 (Python)
+            set(cmdRef, "stop").then(() => {
+                console.log("已發送 Stop 指令");
+            }).catch((err) => alert("發送指令失敗: " + err));
+
+            // 2. UI 變更
             this.isRecording = false;
             this.els.btnUpload.classList.remove('hidden');
             this.els.btnDownload.classList.remove('hidden');

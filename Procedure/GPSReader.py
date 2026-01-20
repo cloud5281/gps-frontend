@@ -120,5 +120,5 @@ class GPSReader:
     def run(self):
         self.running = True
         # 啟動背景執行緒 (daemon=True 確保主程式關閉時執行緒也結束)
-        logger.info(f"🚀 開始處理 GPS 數據")
+        logger.info(f"🚀 開始處理 GPS 數據...")
         threading.Thread(target=self._producer, daemon=True).start()

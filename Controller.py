@@ -1,0 +1,134 @@
+import logging
+import threading
+import time
+import firebase_admin
+import webbrowser
+
+from firebase_admin import credentials, db
+from Config import Config
+from Process import RunProcess
+
+class SystemController:
+    def __init__(self, config_file="config.json"):
+        self.config_file = config_file
+        self.logger = self._setup_logger()
+        self.process = None
+        self.process_thread = None
+        # 先讀取設定檔以獲取 Firebase 資訊
+        try:
+            self.cfg = Config(self.config_file)
+        except Exception as e:
+            self.logger.error(f"❌ 設定檔讀取失敗: {e}")
+            raise
+
+        # 初始化 Firebase (用於監聽指令)
+        self._init_firebase_listener()
+
+    def _setup_logger(self):
+        """設定日誌系統：同時輸出到螢幕與檔案"""
+        log_filename = "execution.log" 
+
+        # 設定 Handlers
+        handlers = [
+            logging.StreamHandler(),  # 輸出到控制台
+            logging.FileHandler(log_filename, encoding='utf-8', mode='w') 
+        ]
+
+        # 套用設定
+        logging.basicConfig(
+            level=logging.INFO,
+            format='[%(asctime)s] %(message)s',
+            datefmt='%y/%m/%d %H:%M:%S',
+            handlers=handlers,
+            force=True  
+        )
+        
+        return logging.getLogger("Controller")
+
+    def _init_firebase_listener(self):
+        """初始化 Firebase 連線並準備監聽"""
+        try:
+            if not firebase_admin._apps:
+                cred = credentials.Certificate(self.cfg.FIREBASE_KEY)
+                firebase_admin.initialize_app(cred, {'databaseURL': self.cfg.DB_URL})
+            self.logger.info("📡 Controller 已連線至 Firebase，等待前端指令...")
+        except Exception as e:
+            self.logger.error(f"❌ Firebase 連線失敗: {e}")
+
+    def _command_handler(self, event):
+        """當 Firebase 上的 'control/command' 數值改變時，會觸發此函式"""
+        if event.data is None: return
+        
+        command = str(event.data).lower()
+        self.logger.info(f"📩 收到前端指令: {command}")
+
+        if command == "start":
+            self.start_process()
+        elif command == "stop":
+            self.stop_process()
+        else:
+            self.logger.warning(f"⚠️ 未知指令: {command}")
+    
+    def start_process(self):
+        """讀取 Config 並啟動 Process"""
+        if self.process is not None and self.process.running:
+            self.logger.warning("程式已經在執行中！")
+            return
+        # self.logger.info("啟動系統...")
+    
+        # 讀取最新設定 (每次 Start 都重新讀取，方便參數更新)
+        try:
+            current_cfg = Config(self.config_file)
+            self.process = RunProcess(current_cfg)
+            self.process_thread = threading.Thread(target=self.process.run)
+            self.process_thread.start()
+            # 回報狀態給 Firebase (讓前端知道後端真的動了)
+            db.reference(f'{self.cfg.PROJECT_NAME}/control/status').set('running')
+            
+        except Exception as e:
+            self.logger.error(f"❌ 啟動失敗: {e}")
+
+    def stop_process(self):
+        """停止 Process"""
+        if self.process is None or not self.process.running:
+            self.logger.warning("系統尚未執行")
+            return
+
+        self.logger.info("正在停止系統...")
+        self.process.stop()
+        if self.process_thread:
+            self.process_thread.join()
+        
+        self.process = None
+        # 回報狀態
+        db.reference(f'{self.cfg.PROJECT_NAME}/control/status').set('stopped')
+        self.logger.info("系統已完全停止")
+        self.logger.info("---程式結束---")
+        logging.shutdown()
+
+    def run(self):
+        """主程式進入無窮迴圈，持續監聽 Firebase"""
+        webbrowser.open(f'{self.cfg.MAP_URL}?id={self.cfg.DB_ID}&key={self.cfg.API_KEY}&path={self.cfg.PROJECT_NAME}')
+        cmd_ref = db.reference(f'{self.cfg.PROJECT_NAME}/control/command')
+        
+        # 第一次啟動先歸零指令，避免上次殘留的 start 導致意外啟動
+        cmd_ref.set("") 
+        
+        # 開始監聽 (listen 是非阻塞的，所以下面需要一個 while loop 讓程式不結束)
+        cmd_listener = cmd_ref.listen(self._command_handler)
+        
+        self.logger.info("🟢 後端程式已開始運作")
+        self.logger.info("按 Ctrl+C 可關閉後端服務。")
+        
+        try:
+            while True:
+                time.sleep(1) 
+        except KeyboardInterrupt:
+            self.logger.info("👋 正在關閉後端服務...")
+            if self.process and self.process.running:
+                self.stop_process()
+            cmd_listener.close()
+
+if __name__ == "__main__":
+    ctrl = SystemController()
+    ctrl.run()
