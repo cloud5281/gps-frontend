@@ -100,7 +100,7 @@ class SystemController:
             # 4. 如果專案名稱改了，必須重啟程式才能監聽新頻道
             # 這裡我們先做簡單處理：更新記憶體內的 cfg
             self.cfg = Config(self.config_file) 
-            db.reference(f'{self.cfg.PROJECT_NAME}/control/config_update').set(None)
+            db.reference(f'{self.cfg.PROJECT_NAME}/control/config_update').delete()
             # 再推一次新的設定上去確認
             self._push_current_config_to_firebase()
 
@@ -171,7 +171,7 @@ class SystemController:
         cmd_listener = cmd_ref.listen(self._command_handler)
 
         config_ref = db.reference(f'{self.cfg.PROJECT_NAME}/control/config_update')
-        config_ref.set(None) # 清空舊請求
+        config_ref.delete() # 清空舊請求
         config_listener = config_ref.listen(self._handle_config_update)
         
         self.logger.info("🟢 後端程式已開始運作")
