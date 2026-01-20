@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>即時移動測繪</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <div class="info-panel">
+        <div class="panel-header-row">
+            <span class="panel-title">狀態監控</span>
+            <button id="btn-open-settings" class="btn-icon">⚙️ 參數設定</button>
+        </div>
+        
+        <div class="status-box">
+            <span id="status-dot" class="status-dot st-offline"></span>
+            <span id="connection-text" class="status-text">未連線</span>
+        </div>
+
+        <div class="data-row">時間: <span id="time">-</span></div>
+        <div class="data-row">專案: <span id="currentPath" class="highlight-blue">-</span></div>
+        <div class="data-row">座標: <span id="coords">-</span></div>
+        <div class="data-row">濃度: <span id="concentration">-</span></div>
+        
+        <label class="checkbox-label"><input type="checkbox" id="autoCenter" checked> 自動跟隨</label>
+    </div>
+
+    <div id="settings-modal" class="modal-overlay hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>濃度閾值設定</h3>
+                <span id="btn-close-modal" class="close-btn">&times;</span>
+            </div>
+            
+            <div class="modal-body">
+                <p class="hint-text">設定各顏色區間的數值 (Enter 儲存)</p>
+                
+                <div class="th-grid-row">
+                    <span class="th-label text-green">綠</span>
+                    <span></span> <span class="th-symbol">&lt;</span>
+                    <input type="number" id="val-a" value="50" class="th-input">
+                </div>
+
+                <div class="th-grid-row">
+                    <span class="th-label text-yellow">黃</span>
+                    <span id="disp-a" class="th-start-val">50</span>
+                    <span class="th-symbol">~</span>
+                    <input type="number" id="val-b" value="100" class="th-input">
+                </div>
+
+                <div class="th-grid-row">
+                    <span class="th-label text-orange">橙</span>
+                    <span id="disp-b" class="th-start-val">100</span>
+                    <span class="th-symbol">~</span>
+                    <input type="number" id="val-c" value="150" class="th-input">
+                </div>
+
+                <div class="th-grid-row">
+                    <span class="th-label text-red">紅</span>
+                    <span></span> <span class="th-symbol">&ge;</span>
+                    <span id="disp-c" class="th-static-end">150</span>
+                </div>
+
+                <div class="msg-container">
+                    <span id="msg-box"></span>
+                </div>
+            </div>
+            
+            <div class="modal-footer">
+                <button id="btn-save-settings" class="btn-primary">儲存設定</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="bottom-control-bar">
+        <button id="btn-upload" class="ctrl-btn btn-secondary">上傳</button>
+        <button id="btn-start" class="ctrl-btn btn-primary-large">開始</button>
+        <button id="btn-download" class="ctrl-btn btn-secondary">下載</button>
+    </div>
+
+    <div id="map"></div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script type="module" src="app.js"></script>
+</body>
+</html>

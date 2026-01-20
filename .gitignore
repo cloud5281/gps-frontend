@@ -1,0 +1,7 @@
+config.json
+firebase_key.json
+*.log
+__pycache__/
+venv/
+.vscode/
+.pytest_cache/

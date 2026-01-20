@@ -1,0 +1,94 @@
+body, html { margin: 0; padding: 0; height: 100%; font-family: "Microsoft JhengHei", sans-serif; overflow: hidden; }
+
+/* 地圖全螢幕 */
+#map { height: 100vh; width: 100%; z-index: 1; }
+
+/* --- 右上角資訊面板 --- */
+.info-panel {
+    position: absolute; top: 10px; right: 10px; z-index: 500;
+    background: rgba(255, 255, 255, 0.95); padding: 12px; border-radius: 8px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+    min-width: 200px; font-size: 14px;
+}
+
+.panel-header-row {
+    display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;
+}
+.panel-title { font-weight: bold; font-size: 16px; }
+.btn-icon {
+    background: #f0f0f0; border: 1px solid #ccc; border-radius: 4px;
+    cursor: pointer; padding: 2px 6px; font-size: 12px;
+}
+.btn-icon:hover { background: #e0e0e0; }
+
+.status-box { margin-bottom: 8px; padding: 4px; background: #f8f9fa; border-radius: 4px; display: flex; align-items: center; }
+.status-dot { width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; background-color: gray; }
+.st-active { background-color: #28a745; box-shadow: 0 0 5px #28a745; }
+.st-offline { background-color: gray; }
+.data-row { margin-bottom: 4px; }
+.highlight-blue { color: blue; }
+
+/* --- 底部控制列 --- */
+.bottom-control-bar {
+    position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%);
+    z-index: 1000;
+    display: flex; gap: 15px; align-items: center;
+    background: rgba(255, 255, 255, 0.9); padding: 10px 20px;
+    border-radius: 30px; box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+}
+
+.ctrl-btn {
+    border: none; border-radius: 20px; cursor: pointer;
+    font-weight: bold; transition: all 0.2s;
+    padding: 10px 20px; font-size: 14px;
+}
+
+.btn-primary-large {
+    background-color: #28a745; color: white;
+    font-size: 16px; padding: 12px 30px; border-radius: 25px;
+    min-width: 100px;
+}
+.btn-primary-large:hover { background-color: #218838; transform: scale(1.05); }
+
+/* 停止狀態的樣式 (紅色) */
+.btn-stop {
+    background-color: #dc3545 !important;
+}
+.btn-stop:hover { background-color: #c82333 !important; }
+
+.btn-secondary {
+    background-color: #6c757d; color: white;
+}
+.btn-secondary:hover { background-color: #5a6268; }
+
+/* 隱藏元素用 */
+.hidden { display: none !important; }
+
+/* --- 彈出視窗 (Modal) --- */
+.modal-overlay {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(0, 0, 0, 0.5); z-index: 2000;
+    display: flex; justify-content: center; align-items: center;
+}
+
+.modal-content {
+    background: white; padding: 20px; border-radius: 8px;
+    width: 300px; box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+    animation: fadeIn 0.2s ease-out;
+}
+
+@keyframes fadeIn { from { opacity: 0; transform: translateY(-20px); } to { opacity: 1; transform: translateY(0); } }
+
+.modal-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #eee; padding-bottom: 10px; margin-bottom: 15px; }
+.modal-header h3 { margin: 0; font-size: 18px; }
+.close-btn { cursor: pointer; font-size: 24px; color: #aaa; }
+.close-btn:hover { color: #000; }
+
+.modal-footer { text-align: right; margin-top: 15px; border-top: 1px solid #eee; padding-top: 10px; }
+.btn-primary { background-color: #007bff; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; }
+
+/* 閾值表格樣式 (沿用之前的) */
+.th-grid-row { display: grid; grid-template-columns: 30px 1fr 25px 60px; align-items: center; margin-bottom: 10px; gap: 5px; }
+.th-label { font-weight: bold; }
+.text-green { color:#28a745; } .text-yellow { color:#d39e00; } .text-orange { color:#fd7e14; } .text-red { color:#dc3545; }
+.th-input { width: 100%; padding: 5px; border: 1px solid #ccc; border-radius: 4px; }
