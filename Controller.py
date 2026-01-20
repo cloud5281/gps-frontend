@@ -57,9 +57,10 @@ class SystemController:
 
     def _command_handler(self, event):
         """當 Firebase 上的 'control/command' 數值改變時，會觸發此函式"""
-        if event.data is None: return
+        if event.data is None or event.data == "": return
         
         command = str(event.data).lower()
+        if not command: return      # 再次確認有沒有指令 (防呆)
         self.logger.info(f"📩 收到前端指令: {command}")
 
         if command == "start":
@@ -118,13 +119,13 @@ class SystemController:
         cmd_listener = cmd_ref.listen(self._command_handler)
         
         self.logger.info("🟢 後端程式已開始運作")
-        self.logger.info("按 Ctrl+C 可關閉後端服務。")
+        self.logger.info("按 Ctrl+C 可關閉後端程式。")
         
         try:
             while True:
                 time.sleep(1) 
         except KeyboardInterrupt:
-            self.logger.info("👋 正在關閉後端服務...")
+            self.logger.info("👋 正在關閉後端程式...")
             if self.process and self.process.running:
                 self.stop_process()
             cmd_listener.close()

@@ -241,7 +241,10 @@ class UIManager {
         // ★ 注意：請確保你的 main() 函式有把 db 傳給 uiManager，或者在這裡重新獲取
         // 最簡單的方法：直接在檔案全域 scope 宣告 db，或是在這裡用 getDatabase()
         const db = getDatabase(); 
-        const cmdRef = ref(db, `${Config.projectId}/control/command`);
+        const currentProjectId = Config.projectId;
+        const cmdRef = ref(db, `${currentProjectId}/control/command`);
+
+        console.log(`正在發送指令到: ${currentProjectId}/control/command`);
 
         if (!this.isRecording) {
             // 1. 發送指令給後端 (Python)
