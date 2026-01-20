@@ -3,7 +3,6 @@ import { getDatabase, ref, onValue, onChildAdded, set } from "https://www.gstati
 
 /**
  * 1. 設定管理 (Configuration)
- * 優先從 LocalStorage 讀取使用者設定，若無則讀取 URL 參數，最後才是預設值
  */
 const Config = (() => {
     const urlParams = new URLSearchParams(window.location.search);
@@ -14,14 +13,19 @@ const Config = (() => {
     const savedPort = localStorage.getItem('cfg_gps_port');
     const savedUnit = localStorage.getItem('cfg_conc_unit');
 
+    // ★ 修正重點：確保 ID 統一
+    const defaultId = "20260120"; 
+    const finalProjectId = savedProject || urlParams.get('id') || defaultId;
+
     return {
-        projectId: savedProject || urlParams.get('id') || "20260120",
-        gpsIp: savedIp || "192.168.199.103", // 預設值
-        gpsPort: savedPort || "11123",      // 預設值
-        concUnit: savedUnit || "ppb",      // 預設值
+        projectId: finalProjectId,
+        gpsIp: savedIp || "192.168.199.103",
+        gpsPort: savedPort || "11123",
+        concUnit: savedUnit || "ppb",
         
         apiKey: urlParams.get('key') || "AIzaSyCjPnL5my8NsG7XYCbABGh45KtKM9s4SlI",
-        dbPath: urlParams.get('path') || "test_project",
+        // ★ 修正重點：dbPath 如果沒有特別指定，就應該跟 projectId 一樣，不然會聽錯頻道
+        dbPath: urlParams.get('path') || finalProjectId, 
         dbURL: urlParams.get('db') || null,
         COLORS: {
             GREEN: '#28a745', YELLOW: '#ffc107', ORANGE: '#fd7e14', RED: '#dc3545'
@@ -68,7 +72,6 @@ class MapManager {
         });
         circle.concValue = data.conc;
 
-        // 使用 Config 中的單位
         const unit = data.conc_unit || Config.concUnit;
 
         const tooltipHtml = `
@@ -98,14 +101,16 @@ class MapManager {
  * 3. 介面管理器 (UIManager)
  */
 class UIManager {
-    constructor(mapManager) {
+    // ★ 修正重點：Constructor 接收 db 實體
+    constructor(mapManager, db) {
         this.mapManager = mapManager;
+        this.db = db; // 將資料庫連線存起來
         this.thresholds = { a: 50, b: 100, c: 150 };
         this.isRecording = false;
 
         this.initDOM();
         this.bindEvents();
-        this.loadSettings(); // 載入所有設定
+        this.loadSettings();
         this.startClock();
     }
 
@@ -119,13 +124,11 @@ class UIManager {
             statusText: document.getElementById('connection-text'),
             autoCenter: document.getElementById('autoCenter'),
             
-            // 彈出視窗
             modal: document.getElementById('settings-modal'),
             btnOpenSettings: document.getElementById('btn-open-settings'),
             btnCloseModal: document.getElementById('btn-close-modal'),
-            btnSaveBackend: document.getElementById('btn-save-backend'), // 儲存後端參數
+            btnSaveBackend: document.getElementById('btn-save-backend'),
 
-            // 後端參數輸入框
             backendInputs: {
                 project: document.getElementById('set-project-id'),
                 ip: document.getElementById('set-gps-ip'),
@@ -133,12 +136,10 @@ class UIManager {
                 unit: document.getElementById('set-conc-unit')
             },
 
-            // 底部按鈕
             btnStart: document.getElementById('btn-start'),
             btnUpload: document.getElementById('btn-upload'),
             btnDownload: document.getElementById('btn-download'),
 
-            // 閾值輸入
             inputs: {
                 a: document.getElementById('val-a'),
                 b: document.getElementById('val-b'),
@@ -152,13 +153,11 @@ class UIManager {
             msgBox: document.getElementById('msg-box')
         };
 
-        this.els.path.innerText = Config.projectId; // 這裡改顯示 Project ID
+        this.els.path.innerText = Config.projectId;
     }
 
     bindEvents() {
-        // --- 彈出視窗 ---
         this.els.btnOpenSettings.addEventListener('click', () => {
-            // 打開時把目前的 Config 值填入輸入框
             this.els.backendInputs.project.value = Config.projectId;
             this.els.backendInputs.ip.value = Config.gpsIp;
             this.els.backendInputs.port.value = Config.gpsPort;
@@ -171,12 +170,10 @@ class UIManager {
             if (e.target === this.els.modal) this.els.modal.classList.add('hidden');
         });
 
-        // --- 儲存後端參數 ---
         this.els.btnSaveBackend.addEventListener('click', () => {
             this.saveBackendSettings();
         });
 
-        // --- 儲存閾值 (Enter 鍵) ---
         Object.values(this.els.inputs).forEach(input => {
             input.addEventListener('keydown', (e) => {
                 if (e.key === 'Enter') {
@@ -187,13 +184,11 @@ class UIManager {
             });
         });
 
-        // --- 底部按鈕 ---
         this.els.btnStart.addEventListener('click', () => this.toggleRecordingState());
         this.els.btnUpload.addEventListener('click', () => alert(`準備上傳至 IP: ${Config.gpsIp} Port: ${Config.gpsPort}`));
         this.els.btnDownload.addEventListener('click', () => alert("下載功能開發中..."));
     }
 
-    // --- 儲存後端參數到 LocalStorage ---
     saveBackendSettings() {
         const p = this.els.backendInputs.project.value.trim();
         const i = this.els.backendInputs.ip.value.trim();
@@ -202,57 +197,54 @@ class UIManager {
 
         if(!p) return alert("專案名稱不能為空");
 
-        // 1. 儲存到 LocalStorage
         localStorage.setItem('cfg_project_id', p);
         localStorage.setItem('cfg_gps_ip', i);
         localStorage.setItem('cfg_gps_port', pt);
         localStorage.setItem('cfg_conc_unit', u);
 
-        // 2. 更新記憶體中的 Config (這樣不用重新整理，程式也能讀到新值)
         Config.projectId = p;
         Config.gpsIp = i;
         Config.gpsPort = pt;
         Config.concUnit = u;
+        // ★ 修正：更新 dbPath 以確保讀取路徑也跟著變
+        Config.dbPath = p; 
 
-        // 3. 即時更新介面上顯示的專案名稱
         this.els.path.innerText = p;
 
-        // 4. 按鈕回饋效果
         const btn = this.els.btnSaveBackend;
         const originalText = btn.innerText;
         const originalBg = btn.style.backgroundColor;
 
         btn.innerText = "儲存成功";
-        btn.style.backgroundColor = "#28a745"; // 變綠色
+        btn.style.backgroundColor = "#28a745";
         btn.disabled = true;
 
-        // 1秒後恢復按鈕並關閉視窗
         setTimeout(() => {
             btn.innerText = originalText;
             btn.style.backgroundColor = originalBg;
             btn.disabled = false;
-            this.els.modal.classList.add('hidden'); // 關閉視窗
+            this.els.modal.classList.add('hidden');
+            // 建議：這裡通常需要 reload 頁面來確保 Firebase listener 重連到新專案
+             location.reload(); 
         }, 1000);
     }
 
     toggleRecordingState() {
-        // 取得 Firebase 資料庫實體 (假設已經在 main 函式初始化，這裡我們透過全域變數或屬性存取)
-        // 為了方便，我們在 UIManager 裡面存取 db 實體。
-        // ★ 注意：請確保你的 main() 函式有把 db 傳給 uiManager，或者在這裡重新獲取
-        // 最簡單的方法：直接在檔案全域 scope 宣告 db，或是在這裡用 getDatabase()
-        const db = getDatabase(); 
+        // ★ 修正重點：使用已經傳進來的 this.db，而不是重新 getDatabase()
         const currentProjectId = Config.projectId;
-        const cmdRef = ref(db, `${currentProjectId}/control/command`);
+        const cmdRef = ref(this.db, `${currentProjectId}/control/command`);
 
         console.log(`正在發送指令到: ${currentProjectId}/control/command`);
 
         if (!this.isRecording) {
-            // 1. 發送指令給後端 (Python)
+            // 發送 Start
             set(cmdRef, "start").then(() => {
-                console.log("已發送 Start 指令");
-            }).catch((err) => alert("發送指令失敗: " + err));
+                console.log("✅ Start 指令發送成功");
+            }).catch((err) => {
+                console.error("❌ 發送失敗:", err);
+                alert("發送指令失敗，請檢查 Console");
+            });
 
-            // 2. UI 變更
             this.isRecording = true;
             this.els.btnUpload.classList.add('hidden');
             this.els.btnDownload.classList.add('hidden');
@@ -260,12 +252,14 @@ class UIManager {
             this.els.btnStart.innerText = "停止";
             this.els.btnStart.classList.add('btn-stop');
         } else {
-            // 1. 發送指令給後端 (Python)
+            // 發送 Stop
             set(cmdRef, "stop").then(() => {
-                console.log("已發送 Stop 指令");
-            }).catch((err) => alert("發送指令失敗: " + err));
+                console.log("✅ Stop 指令發送成功");
+            }).catch((err) => {
+                console.error("❌ 發送失敗:", err);
+                alert("發送指令失敗: " + err);
+            });
 
-            // 2. UI 變更
             this.isRecording = false;
             this.els.btnUpload.classList.remove('hidden');
             this.els.btnDownload.classList.remove('hidden');
@@ -282,7 +276,6 @@ class UIManager {
     updateStatus(state, text) {
         this.els.statusDot.className = `status-dot st-${state}`;
         this.els.statusText.innerText = text;
-        
         const colorMap = { 'active': '#28a745', 'connecting': '#d39e00', 'offline': 'gray', 'timeout': '#dc3545' };
         this.els.statusText.style.color = colorMap[state] || 'gray';
     }
@@ -297,7 +290,7 @@ class UIManager {
 
         this.els.coords.innerText = `${data.lat.toFixed(6)}, ${data.lon.toFixed(6)}`;
         if (data.conc !== undefined) {
-            const unit = data.conc_unit || Config.concUnit; // 優先使用資料裡的單位，否則用設定值
+            const unit = data.conc_unit || Config.concUnit;
             this.els.conc.innerText = `${data.conc} ${unit}`;
             this.els.conc.style.color = (data.conc >= this.thresholds.c) ? 'red' : 'black';
         }
@@ -311,22 +304,18 @@ class UIManager {
     }
 
     loadSettings() {
-        // 載入閾值
         const savedA = localStorage.getItem('th_a');
         const savedB = localStorage.getItem('th_b');
         const savedC = localStorage.getItem('th_c');
-
         if (savedA) this.els.inputs.a.value = savedA;
         if (savedB) this.els.inputs.b.value = savedB;
         if (savedC) this.els.inputs.c.value = savedC;
-
         this.saveThresholdSettings(true); 
     }
 
     saveThresholdSettings(isSilent = false) {
         const { a: elA, b: elB, c: elC } = this.els.inputs;
         const msgBox = this.els.msgBox;
-
         [elA, elB, elC].forEach(el => el.classList.remove('input-error'));
         if (!isSilent) msgBox.innerText = "";
 
@@ -349,11 +338,9 @@ class UIManager {
         this.els.displays.a.innerText = valA;
         this.els.displays.b.innerText = valB;
         this.els.displays.c.innerText = valC;
-
         localStorage.setItem('th_a', valA);
         localStorage.setItem('th_b', valB);
         localStorage.setItem('th_c', valC);
-
         this.mapManager.refreshColors(this.getColor.bind(this));
 
         if (!isSilent) {
@@ -368,9 +355,7 @@ class UIManager {
  * 4. 應用程式入口 (Main)
  */
 async function main() {
-    const mapManager = new MapManager();
-    const uiManager = new UIManager(mapManager);
-
+    // 1. 先初始化 Firebase，確保拿到 db 實體
     const firebaseConfig = {
         apiKey: Config.apiKey,
         authDomain: `${Config.projectId}.firebaseapp.com`,
@@ -381,9 +366,15 @@ async function main() {
     const app = initializeApp(firebaseConfig);
     const db = getDatabase(app);
 
+    // 2. 初始化 Managers (★ 把 db 傳給 UIManager)
+    const mapManager = new MapManager();
+    const uiManager = new UIManager(mapManager, db);
+
     let backendState = 'offline';
     let lastGpsData = null;
 
+    // 3. 開始監聽資料
+    // ★ 注意：這裡使用 Config.dbPath，它現在預設會等於 projectId，所以會聽對位置
     onValue(ref(db, `${Config.dbPath}/status`), (snapshot) => {
         const data = snapshot.val();
         if (!data) return;
@@ -393,6 +384,7 @@ async function main() {
         if (data.state === 'active') displayText = '連線正常';
         else if (data.state === 'connecting') displayText = '連線中...';
         else if (data.state === 'timeout') displayText = '連線逾時';
+        else if (data.state === 'stopped') displayText = '已停止';
 
         uiManager.updateStatus(data.state, displayText);
         
