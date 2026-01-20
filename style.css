@@ -4,37 +4,108 @@ body, html { margin: 0; padding: 0; height: 100%; font-family: "Microsoft JhengH
 #map { height: 100vh; width: 100%; z-index: 1; }
 
 /* --- 右上角資訊面板 --- */
+/* --- 面板整體容器 --- */
 .info-panel {
-    position: absolute; top: 10px; right: 10px; z-index: 500;
-    background: rgba(255, 255, 255, 0.95); padding: 12px; border-radius: 8px;
-    box-shadow: 0 2px 10px rgba(0,0,0,0.2);
-    min-width: 210px; font-size: 14px;
+    position: absolute; top: 15px; right: 15px; z-index: 500;
+    background: rgba(255, 255, 255, 0.98); /* 不透明度稍微提高增加質感 */
+    padding: 16px; 
+    border-radius: 12px; /* 圓角加大 */
+    box-shadow: 0 4px 20px rgba(0,0,0,0.15); /* 陰影更柔和 */
+    min-width: 240px; 
+    font-size: 14px;
+    color: #333;
+    border: 1px solid rgba(0,0,0,0.05);
 }
 
-.panel-header-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
-.panel-title { font-weight: bold; font-size: 16px; }
-.btn-icon { background: #f0f0f0; border: 1px solid #ccc; border-radius: 4px; cursor: pointer; padding: 4px 8px; font-size: 12px; }
-.btn-icon:hover { background: #e0e0e0; }
+/* 標題列 */
+.panel-header-row {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 12px;
+}
+.panel-title { font-weight: 700; font-size: 16px; color: #222; }
+.btn-icon {
+    background: #f1f3f5; border: 1px solid #dee2e6;
+    border-radius: 6px; cursor: pointer;
+    padding: 4px 8px; font-size: 12px; color: #495057;
+    transition: all 0.2s;
+}
+.btn-icon:hover { background: #e9ecef; color: #000; }
 
-.status-box { margin-bottom: 8px; padding: 4px; background: #f8f9fa; border-radius: 4px; display: flex; align-items: center; }
-.status-dot { width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; background-color: gray; }
-.st-active { background-color: #28a745; box-shadow: 0 0 5px #28a745; }
-.st-offline { background-color: gray; }
-.data-row { margin-bottom: 4px; }
-.highlight-blue { color: blue; }
+/* 狀態條 */
+.status-box {
+    margin-bottom: 12px; padding: 8px 12px;
+    background: #f8f9fa; border: 1px solid #e9ecef;
+    border-radius: 8px;
+    display: flex; align-items: center;
+}
+.status-dot { width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; }
+.status-text { font-weight: 600; font-size: 14px; }
 
-/* 閾值區域 (原本的樣式) */
-.threshold-section { margin-top: 10px; border-top: 1px solid #ddd; padding-top: 10px; }
-.section-title { color: #666; display:block; margin-bottom:5px; }
-.th-grid-row { display: grid; grid-template-columns: 30px 1fr 25px 60px; align-items: center; margin-bottom: 5px; gap: 2px; }
-.th-label { font-weight: bold; }
-.text-green { color:#28a745; } .text-yellow { color:#d39e00; } .text-orange { color:#fd7e14; } .text-red { color:#dc3545; }
-.th-input { width: 100%; text-align: left; padding: 2px 5px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; }
-.th-start-val { text-align: right; color: #555; }
-.th-symbol { text-align: center; color: #888; font-weight: bold; }
-.th-static-end { text-align: left; padding-left: 11px; color: #555; }
-.input-error { background-color: #ffe6e6; border: 2px solid #dc3545 !important; color: #dc3545; }
-.msg-container { margin-top: 5px; min-height: 20px; text-align: right; font-size: 12px; }
+/* --- ★ 數據網格區 (對齊的神器) --- */
+.data-grid-container {
+    display: grid;
+    grid-template-columns: 45px 1fr; /* 左邊標籤固定寬度，右邊自動填滿 */
+    gap: 6px 10px; /* 上下間距 6px，左右間距 10px */
+    margin-bottom: 12px;
+}
+.data-label { color: #666; font-weight: 500; text-align: right; } /* 標籤靠右對齊 */
+.data-value { color: #111; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
+.highlight-blue { color: #007bff; }
+
+/* Checkbox */
+.checkbox-row { margin-bottom: 12px; padding-left: 2px; }
+.checkbox-label { cursor: pointer; display: flex; align-items: center; color: #444; }
+.checkbox-label input { margin-right: 8px; }
+
+/* --- 閾值設定區 --- */
+.threshold-section {
+    border-top: 1px solid #eee;
+    padding-top: 12px;
+    margin-top: 12px;
+}
+.section-header {
+    display: flex; justify-content: space-between; align-items: baseline;
+    margin-bottom: 10px; color: #444; font-weight: 600;
+}
+.section-header small { color: #999; font-weight: normal; font-size: 11px; }
+
+/* ★ 閾值網格系統 (4欄) */
+.th-grid-row {
+    display: grid;
+    /* 欄位寬度定義: [徽章寬] [起始值] [符號] [輸入框寬] */
+    grid-template-columns: 28px 1fr 24px 70px; 
+    align-items: center;
+    margin-bottom: 8px;
+    gap: 4px;
+}
+
+/* 顏色徽章 (取代原本純文字) */
+.th-badge {
+    display: inline-block; width: 24px; height: 24px;
+    line-height: 24px; text-align: center;
+    border-radius: 50%; font-size: 12px; font-weight: bold; color: white;
+}
+.bg-green { background-color: #28a745; }
+.bg-yellow { background-color: #ffc107; color: #333; } /* 黃色字改深色較易讀 */
+.bg-orange { background-color: #fd7e14; }
+.bg-red { background-color: #dc3545; }
+
+/* 數值與符號 */
+.th-start-val { text-align: right; color: #555; font-size: 13px; padding-right: 2px;}
+.th-symbol { text-align: center; color: #999; font-weight: bold; font-family: monospace;}
+.th-static-end { padding-left: 8px; font-weight: bold; color: #333; }
+
+/* 輸入框美化 */
+.th-input {
+    width: 100%; padding: 4px 8px;
+    border: 1px solid #ced4da; border-radius: 4px;
+    font-size: 13px; text-align: center;
+    transition: border-color 0.2s;
+    background: #fbfbfb;
+}
+.th-input:focus { outline: none; border-color: #80bdff; background: #fff; }
+
+.msg-container { min-height: 18px; text-align: right; font-size: 12px; margin-top: 4px; }
 
 /* --- 底部控制列 --- */
 .bottom-control-bar {
@@ -64,9 +135,47 @@ body, html { margin: 0; padding: 0; height: 100%; font-family: "Microsoft JhengH
 .modal-header h3 { margin: 0; font-size: 18px; }
 .close-btn { cursor: pointer; font-size: 24px; color: #aaa; }
 
-.form-group { margin-bottom: 15px; }
-.form-group label { display: block; margin-bottom: 5px; font-weight: bold; font-size: 14px; color: #333; }
-.form-input { width: 100%; padding: 8px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; }
+/* --- 彈出視窗 (Modal) 表單對齊優化 --- */
+/* 1. 表單網格容器 */
+.modal-form-grid {
+    display: grid;
+    /* 定義兩欄：左邊標籤固定 120px，右邊輸入框自動填滿 */
+    grid-template-columns: 120px 1fr; 
+    gap: 15px 12px; /* 上下間距 15px, 左右間距 12px */
+    align-items: center; /* 垂直置中 */
+    padding: 10px 0;
+}
+
+/* 2. 左側標籤樣式 */
+.modal-form-grid label {
+    text-align: right; /* 靠右對齊 (貼近輸入框) */
+    font-weight: 600;
+    color: #555;
+    font-size: 14px;
+}
+
+/* 3. 輸入框樣式美化 */
+.form-input {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid #ced4da;
+    border-radius: 6px;
+    font-size: 14px;
+    color: #495057;
+    background-color: #fff;
+    transition: border-color 0.2s, box-shadow 0.2s;
+    box-sizing: border-box; /* 確保 padding 不會撐開寬度 */
+}
+
+/* 輸入框聚焦時的效果 (藍色光暈) */
+.form-input:focus {
+    border-color: #80bdff;
+    outline: 0;
+    box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.15);
+}
+
+/* 移除舊的 .form-group 相關樣式 (如果有的話) */
+.form-group { display: none; }
 
 .modal-footer { text-align: right; margin-top: 10px; }
 .btn-primary { background-color: #007bff; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; }

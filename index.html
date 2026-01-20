@@ -20,38 +20,54 @@
             <span id="connection-text" class="status-text">未連線</span>
         </div>
 
-        <div class="data-row">時間: <span id="time">-</span></div>
-        <div class="data-row">專案: <span id="currentPath" class="highlight-blue">-</span></div>
-        <div class="data-row">座標: <span id="coords">-</span></div>
-        <div class="data-row">濃度: <span id="concentration">-</span></div>
+        <div class="data-grid-container">
+            <div class="data-label">時間:</div>
+            <div class="data-value" id="time">-</div>
+
+            <div class="data-label">專案:</div>
+            <div class="data-value highlight-blue" id="currentPath">-</div>
+
+            <div class="data-label">座標:</div>
+            <div class="data-value" id="coords">-</div>
+
+            <div class="data-label">濃度:</div>
+            <div class="data-value" id="concentration">-</div>
+        </div>
         
-        <label class="checkbox-label"><input type="checkbox" id="autoCenter" checked> 自動跟隨</label>
+        <div class="checkbox-row">
+            <label class="checkbox-label">
+                <input type="checkbox" id="autoCenter" checked> 自動跟隨
+            </label>
+        </div>
 
         <div class="threshold-section">
-            <small class="section-title">濃度閾值設定 (Enter 儲存)</small>
+            <div class="section-header">
+                <span>濃度閾值設定</span>
+                <small>(Enter 儲存)</small>
+            </div>
             
             <div class="th-grid-row">
-                <span class="th-label text-green">綠</span>
+                <span class="th-badge bg-green">綠</span>
                 <span></span> <span class="th-symbol">&lt;</span>
                 <input type="number" id="val-a" value="50" class="th-input">
             </div>
 
             <div class="th-grid-row">
-                <span class="th-label text-yellow">黃</span>
+                <span class="th-badge bg-yellow">黃</span>
                 <span id="disp-a" class="th-start-val">50</span>
                 <span class="th-symbol">~</span>
                 <input type="number" id="val-b" value="100" class="th-input">
             </div>
 
             <div class="th-grid-row">
-                <span class="th-label text-orange">橙</span>
+                <span class="th-badge bg-orange">橙</span>
                 <span id="disp-b" class="th-start-val">100</span>
                 <span class="th-symbol">~</span>
                 <input type="number" id="val-c" value="150" class="th-input">
             </div>
 
             <div class="th-grid-row">
-                <span class="th-label text-red">紅</span>
+                <span class="th-badge bg-red">紅</span>
                 <span></span> <span class="th-symbol">&ge;</span>
                 <span id="disp-c" class="th-static-end">150</span>
             </div>
@@ -70,22 +86,16 @@
             </div>
             
             <div class="modal-body">
-                <div class="form-group">
-                    <label>專案名稱 (Project ID)</label>
+                <div class="modal-form-grid">
+                    <label>專案名稱 (ID)</label>
                     <input type="text" id="set-project-id" class="form-input" placeholder="例如: real-time-gps">
-                </div>
-                
-                <div class="form-group">
+                    
                     <label>GPS 連線 IP</label>
                     <input type="text" id="set-gps-ip" class="form-input" placeholder="192.168.x.x">
-                </div>
 
-                <div class="form-group">
                     <label>GPS 連線 Port</label>
                     <input type="number" id="set-gps-port" class="form-input" placeholder="8080">
-                </div>
 
-                <div class="form-group">
                     <label>濃度單位</label>
                     <input type="text" id="set-conc-unit" class="form-input" placeholder="ppm, ppb...">
                 </div>
