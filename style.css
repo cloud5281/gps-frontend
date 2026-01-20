@@ -72,11 +72,11 @@ body, html { margin: 0; padding: 0; height: 100%; font-family: "Microsoft JhengH
 /* ★ 閾值網格系統 (4欄) */
 .th-grid-row {
     display: grid;
-    /* 欄位寬度定義: [徽章寬] [起始值] [符號] [輸入框寬] */
-    grid-template-columns: 28px 1fr 24px 70px; 
+    grid-template-columns: 28px 1fr 24px 55px; 
     align-items: center;
     margin-bottom: 8px;
     gap: 4px;
+    padding-right: 10px; /* ★ 新增：右側留白，避免貼壁 */
 }
 
 /* 顏色徽章 (取代原本純文字) */

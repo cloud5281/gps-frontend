@@ -16,8 +16,8 @@ const Config = (() => {
 
     return {
         projectId: savedProject || urlParams.get('id') || "real-time-gps-84c8a",
-        gpsIp: savedIp || "192.168.1.100", // 預設值
-        gpsPort: savedPort || "8080",      // 預設值
+        gpsIp: savedIp || "192.168.199.103", // 預設值
+        gpsPort: savedPort || "11123",      // 預設值
         concUnit: savedUnit || "ppm",      // 預設值
         
         apiKey: urlParams.get('key') || "AIzaSyCjPnL5my8NsG7XYCbABGh45KtKM9s4SlI",
@@ -202,14 +202,37 @@ class UIManager {
 
         if(!p) return alert("專案名稱不能為空");
 
+        // 1. 儲存到 LocalStorage
         localStorage.setItem('cfg_project_id', p);
         localStorage.setItem('cfg_gps_ip', i);
         localStorage.setItem('cfg_gps_port', pt);
         localStorage.setItem('cfg_conc_unit', u);
 
-        alert("參數已儲存，網頁將重新整理以套用新設定");
-        this.els.modal.classList.add('hidden');
-        location.reload(); // 因為修改 Project ID 需要重新初始化 Firebase，最簡單是用 reload
+        // 2. 更新記憶體中的 Config (這樣不用重新整理，程式也能讀到新值)
+        Config.projectId = p;
+        Config.gpsIp = i;
+        Config.gpsPort = pt;
+        Config.concUnit = u;
+
+        // 3. 即時更新介面上顯示的專案名稱
+        this.els.path.innerText = p;
+
+        // 4. 按鈕回饋效果
+        const btn = this.els.btnSaveBackend;
+        const originalText = btn.innerText;
+        const originalBg = btn.style.backgroundColor;
+
+        btn.innerText = "✅ 儲存成功";
+        btn.style.backgroundColor = "#28a745"; // 變綠色
+        btn.disabled = true;
+
+        // 1秒後恢復按鈕並關閉視窗
+        setTimeout(() => {
+            btn.innerText = originalText;
+            btn.style.backgroundColor = originalBg;
+            btn.disabled = false;
+            this.els.modal.classList.add('hidden'); // 關閉視窗
+        }, 1000);
     }
 
     toggleRecordingState() {
@@ -217,12 +240,14 @@ class UIManager {
             this.isRecording = true;
             this.els.btnUpload.classList.add('hidden');
             this.els.btnDownload.classList.add('hidden');
+            this.els.btnOpenSettings.classList.add('hidden');
             this.els.btnStart.innerText = "停止";
             this.els.btnStart.classList.add('btn-stop');
         } else {
             this.isRecording = false;
             this.els.btnUpload.classList.remove('hidden');
             this.els.btnDownload.classList.remove('hidden');
+            this.els.btnOpenSettings.classList.remove('hidden');
             this.els.btnStart.innerText = "開始";
             this.els.btnStart.classList.remove('btn-stop');
         }
