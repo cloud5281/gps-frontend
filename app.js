@@ -222,7 +222,7 @@ class UIManager {
         const originalText = btn.innerText;
         const originalBg = btn.style.backgroundColor;
 
-        btn.innerText = "✅ 儲存成功";
+        btn.innerText = "儲存成功";
         btn.style.backgroundColor = "#28a745"; // 變綠色
         btn.disabled = true;
 
@@ -240,14 +240,14 @@ class UIManager {
             this.isRecording = true;
             this.els.btnUpload.classList.add('hidden');
             this.els.btnDownload.classList.add('hidden');
-            this.els.btnOpenSettings.classList.add('hidden');
+            this.els.btnOpenSettings.classList.add('invisible');
             this.els.btnStart.innerText = "停止";
             this.els.btnStart.classList.add('btn-stop');
         } else {
             this.isRecording = false;
             this.els.btnUpload.classList.remove('hidden');
             this.els.btnDownload.classList.remove('hidden');
-            this.els.btnOpenSettings.classList.remove('hidden');
+            this.els.btnOpenSettings.classList.remove('invisible');
             this.els.btnStart.innerText = "開始";
             this.els.btnStart.classList.remove('btn-stop');
         }

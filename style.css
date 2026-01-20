@@ -93,15 +93,30 @@ body, html { margin: 0; padding: 0; height: 100%; font-family: "Microsoft JhengH
 /* 數值與符號 */
 .th-start-val { text-align: right; color: #555; font-size: 13px; padding-right: 2px;}
 .th-symbol { text-align: center; color: #999; font-weight: bold; font-family: monospace;}
-.th-static-end { padding-left: 8px; font-weight: bold; color: #333; }
+.th-static-end {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding-left: 9px; 
+    font-weight: normal; 
+    font-size: 14px;
+    font-family: inherit;
+    color: #495057; 
+    line-height: 26px; 
+}
 
 /* 輸入框美化 */
 .th-input {
-    width: 100%; padding: 4px 8px;
-    border: 1px solid #ced4da; border-radius: 4px;
-    font-size: 13px; text-align: center;
-    transition: border-color 0.2s;
+    width: 100%;
+    text-align: left; 
+    padding-left: 8px; 
+    border: 1px solid #ced4da;
+    border-radius: 4px;
+    font-size: 14px;
+    font-family: inherit; 
+    color: #495057;
     background: #fbfbfb;
+    transition: border-color 0.2s;
 }
 .th-input:focus { outline: none; border-color: #80bdff; background: #fff; }
 
@@ -181,3 +196,5 @@ body, html { margin: 0; padding: 0; height: 100%; font-family: "Microsoft JhengH
 .btn-primary { background-color: #007bff; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; }
 .custom-tooltip { background: rgba(0, 0, 0, 0.85); border: 1px solid #666; border-radius: 5px; color: #fff; padding: 6px 10px; font-size: 13px; }
 .leaflet-tooltip-top:before { border-top-color: rgba(0, 0, 0, 0.85); }
+
+.invisible {visibility: hidden; /* 看不見，但空間還在 */}
