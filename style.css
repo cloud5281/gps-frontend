@@ -92,31 +92,35 @@ body, html { margin: 0; padding: 0; height: 100%; font-family: "Microsoft JhengH
 
 /* 數值與符號 */
 .th-start-val { text-align: right; color: #555; font-size: 13px; padding-right: 2px;}
-.th-symbol { text-align: center; color: #999; font-weight: bold; font-family: monospace;}
-.th-static-end {
-    display: block;
-    width: 100%;
-    text-align: left;
-    padding-left: 9px; 
-    font-weight: normal; 
-    font-size: 14px;
-    font-family: inherit;
-    color: #495057; 
-    line-height: 26px; 
-}
-
-/* 輸入框美化 */
+.th-symbol { text-align: center; color: #555; font-weight: bold; font-family: monospace;}
 .th-input {
     width: 100%;
+    box-sizing: border-box; 
     text-align: left; 
-    padding-left: 8px; 
+    padding: 5px 0 5px 10px; 
     border: 1px solid #ced4da;
     border-radius: 4px;
     font-size: 14px;
-    font-family: inherit; 
+    font-family: inherit;
     color: #495057;
     background: #fbfbfb;
-    transition: border-color 0.2s;
+    margin: 0;
+    line-height: 1.5;
+}
+
+.th-static-end {
+    display: block;
+    width: 100%;
+    box-sizing: border-box; 
+    text-align: left;
+    padding: 5px 0 5px 10px; 
+    border: 1px solid transparent; 
+    font-size: 14px;
+    font-family: inherit;
+    font-weight: normal; 
+    color: #555;
+    margin: 0;
+    line-height: 1.5;
 }
 .th-input:focus { outline: none; border-color: #80bdff; background: #fff; }
 

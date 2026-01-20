@@ -15,10 +15,10 @@ const Config = (() => {
     const savedUnit = localStorage.getItem('cfg_conc_unit');
 
     return {
-        projectId: savedProject || urlParams.get('id') || "real-time-gps-84c8a",
+        projectId: savedProject || urlParams.get('id') || "20260120",
         gpsIp: savedIp || "192.168.199.103", // 預設值
         gpsPort: savedPort || "11123",      // 預設值
-        concUnit: savedUnit || "ppm",      // 預設值
+        concUnit: savedUnit || "ppb",      // 預設值
         
         apiKey: urlParams.get('key') || "AIzaSyCjPnL5my8NsG7XYCbABGh45KtKM9s4SlI",
         dbPath: urlParams.get('path') || "test_project",
