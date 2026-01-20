@@ -72,11 +72,10 @@ body, html { margin: 0; padding: 0; height: 100%; font-family: "Microsoft JhengH
 /* ★ 閾值網格系統 (4欄) */
 .th-grid-row {
     display: grid;
-    grid-template-columns: 28px 1fr 24px 55px; 
+    grid-template-columns: 28px 1fr 24px 60px; 
     align-items: center;
     margin-bottom: 8px;
     gap: 4px;
-    padding-right: 10px; /* ★ 新增：右側留白，避免貼壁 */
 }
 
 /* 顏色徽章 (取代原本純文字) */
@@ -95,9 +94,9 @@ body, html { margin: 0; padding: 0; height: 100%; font-family: "Microsoft JhengH
 .th-symbol { text-align: center; color: #555; font-weight: bold; font-family: monospace;}
 .th-input {
     width: 100%;
-    box-sizing: border-box; 
-    text-align: left; 
-    padding: 5px 0 5px 10px; 
+    box-sizing: border-box;
+    text-align: left;
+    padding: 4px 0 4px 10px; 
     border: 1px solid #ced4da;
     border-radius: 4px;
     font-size: 14px;
@@ -111,13 +110,13 @@ body, html { margin: 0; padding: 0; height: 100%; font-family: "Microsoft JhengH
 .th-static-end {
     display: block;
     width: 100%;
-    box-sizing: border-box; 
+    box-sizing: border-box;
     text-align: left;
-    padding: 5px 0 5px 10px; 
-    border: 1px solid transparent; 
+    padding: 5px 0 5px 11px; 
+    border: none; 
     font-size: 14px;
     font-family: inherit;
-    font-weight: normal; 
+    font-weight: normal;
     color: #555;
     margin: 0;
     line-height: 1.5;
