@@ -7,21 +7,15 @@ import { getDatabase, ref, onValue, onChildAdded, set } from "https://www.gstati
 const Config = (() => {
     const urlParams = new URLSearchParams(window.location.search);
     
-    // 從 LocalStorage 讀取設定
-    const savedProject = localStorage.getItem('cfg_project_id');
-    const savedIp = localStorage.getItem('cfg_gps_ip');
-    const savedPort = localStorage.getItem('cfg_gps_port');
-    const savedUnit = localStorage.getItem('cfg_conc_unit');
-
-    // ★ 修正重點：確保 ID 統一
+    // 預設先用 URL 或 預設值，稍後會被 Firebase 的值覆蓋
     const defaultId = "20260120"; 
-    const finalProjectId = savedProject || urlParams.get('id') || defaultId;
+    const finalProjectId = urlParams.get('id') || defaultId;
 
     return {
         projectId: finalProjectId,
-        gpsIp: savedIp || "192.168.199.103",
-        gpsPort: savedPort || "11123",
-        concUnit: savedUnit || "ppb",
+        gpsIp: "192.168.199.103",
+        gpsPort: "11123",
+        concUnit: "ppb",
         
         apiKey: urlParams.get('key') || "AIzaSyCjPnL5my8NsG7XYCbABGh45KtKM9s4SlI",
         dbPath: urlParams.get('path') || finalProjectId, 
@@ -33,7 +27,7 @@ const Config = (() => {
 })();
 
 /**
- * 2. 地圖管理器 (MapManager)
+ * 2. 地圖管理器 (MapManager) - 保持不變
  */
 class MapManager {
     constructor() {
@@ -100,16 +94,15 @@ class MapManager {
  * 3. 介面管理器 (UIManager)
  */
 class UIManager {
-    // ★ 修正重點：Constructor 接收 db 實體
     constructor(mapManager, db) {
         this.mapManager = mapManager;
-        this.db = db; // 將資料庫連線存起來
+        this.db = db;
         this.thresholds = { a: 50, b: 100, c: 150 };
         this.isRecording = false;
 
         this.initDOM();
         this.bindEvents();
-        this.loadSettings();
+        this.loadThresholdSettings(); // 只載入閾值，後端參數改由 Firebase 同步
         this.startClock();
     }
 
@@ -155,8 +148,30 @@ class UIManager {
         this.els.path.innerText = Config.projectId;
     }
 
+    // ★ 新增：當從 Firebase 收到後端傳來的 config 時，更新前端變數與 UI
+    syncConfigFromBackend(data) {
+        if (!data) return;
+        
+        // 更新 Config 物件
+        Config.projectId = data.project_id;
+        Config.gpsIp = data.gps_ip;
+        Config.gpsPort = data.gps_port;
+        Config.concUnit = data.conc_unit;
+        Config.dbPath = data.project_id;
+
+        // 更新 UI 顯示
+        this.els.path.innerText = data.project_id;
+        this.els.backendInputs.project.value = data.project_id;
+        this.els.backendInputs.ip.value = data.gps_ip;
+        this.els.backendInputs.port.value = data.gps_port;
+        this.els.backendInputs.unit.value = data.conc_unit;
+
+        console.log("✅ 已從後端 config.json 同步參數");
+    }
+
     bindEvents() {
         this.els.btnOpenSettings.addEventListener('click', () => {
+            // 打開時，確保輸入框顯示的是目前的 Config (可能剛從後端同步過)
             this.els.backendInputs.project.value = Config.projectId;
             this.els.backendInputs.ip.value = Config.gpsIp;
             this.els.backendInputs.port.value = Config.gpsPort;
@@ -188,6 +203,7 @@ class UIManager {
         this.els.btnDownload.addEventListener('click', () => alert("下載功能開發中..."));
     }
 
+    // ★ 修改：儲存後端參數 -> 發送請求給後端去改 config.json
     saveBackendSettings() {
         const p = this.els.backendInputs.project.value.trim();
         const i = this.els.backendInputs.ip.value.trim();
@@ -196,54 +212,57 @@ class UIManager {
 
         if(!p) return alert("專案名稱不能為空");
 
-        localStorage.setItem('cfg_project_id', p);
-        localStorage.setItem('cfg_gps_ip', i);
-        localStorage.setItem('cfg_gps_port', pt);
-        localStorage.setItem('cfg_conc_unit', u);
-
-        Config.projectId = p;
-        Config.gpsIp = i;
-        Config.gpsPort = pt;
-        Config.concUnit = u;
-        // ★ 修正：更新 dbPath 以確保讀取路徑也跟著變
-        Config.dbPath = p; 
-
-        this.els.path.innerText = p;
+        // 準備要送給後端的資料
+        const updateData = {
+            project_id: p,
+            gps_ip: i,
+            gps_port: pt,
+            conc_unit: u
+        };
 
         const btn = this.els.btnSaveBackend;
         const originalText = btn.innerText;
-        const originalBg = btn.style.backgroundColor;
 
-        btn.innerText = "儲存成功";
-        btn.style.backgroundColor = "#28a745";
+        btn.innerText = "正在傳送...";
         btn.disabled = true;
 
-        setTimeout(() => {
-            btn.innerText = originalText;
-            btn.style.backgroundColor = originalBg;
+        // 寫入到 control/config_update，後端 Controller 會監聽這個路徑
+        // 注意：這裡還是送往 "目前連線中" 的專案ID，後端收到後會處理
+        const updateRef = ref(this.db, `${Config.projectId}/control/config_update`);
+        
+        set(updateRef, updateData).then(() => {
+            btn.innerText = "✅ 參數已更新至後端";
+            btn.style.backgroundColor = "#28a745";
+            
+            setTimeout(() => {
+                btn.innerText = originalText;
+                btn.style.backgroundColor = ""; // 恢復原色
+                btn.disabled = false;
+                this.els.modal.classList.add('hidden');
+                
+                // 如果改了專案 ID，前端最好重新整理以連線到新頻道
+                if (p !== Config.projectId) {
+                    alert("專案名稱已修改，頁面將重新整理以連線至新專案。");
+                    // 修改網址列參數，讓下次進來預設就是新的 ID
+                    const url = new URL(window.location);
+                    url.searchParams.set('id', p);
+                    window.history.pushState({}, '', url);
+                    location.reload();
+                }
+            }, 1000);
+        }).catch((err) => {
+            alert("更新失敗: " + err);
             btn.disabled = false;
-            this.els.modal.classList.add('hidden');
-            // 建議：這裡通常需要 reload 頁面來確保 Firebase listener 重連到新專案
-             location.reload(); 
-        }, 1000);
+            btn.innerText = originalText;
+        });
     }
 
     toggleRecordingState() {
-        // ★ 修正重點：使用已經傳進來的 this.db，而不是重新 getDatabase()
-        const currentProjectId = Config.projectId;
-        const cmdRef = ref(this.db, `${currentProjectId}/control/command`);
-
-        console.log(`正在發送指令到: ${currentProjectId}/control/command`);
+        const cmdRef = ref(this.db, `${Config.projectId}/control/command`);
+        console.log(`正在發送指令到: ${Config.projectId}/control/command`);
 
         if (!this.isRecording) {
-            // 發送 Start
-            set(cmdRef, "start").then(() => {
-                console.log("✅ Start 指令發送成功");
-            }).catch((err) => {
-                console.error("❌ 發送失敗:", err);
-                alert("發送指令失敗，請檢查 Console");
-            });
-
+            set(cmdRef, "start");
             this.isRecording = true;
             this.els.btnUpload.classList.add('hidden');
             this.els.btnDownload.classList.add('hidden');
@@ -251,14 +270,7 @@ class UIManager {
             this.els.btnStart.innerText = "停止";
             this.els.btnStart.classList.add('btn-stop');
         } else {
-            // 發送 Stop
-            set(cmdRef, "stop").then(() => {
-                console.log("✅ Stop 指令發送成功");
-            }).catch((err) => {
-                console.error("❌ 發送失敗:", err);
-                alert("發送指令失敗: " + err);
-            });
-
+            set(cmdRef, "stop");
             this.isRecording = false;
             this.els.btnUpload.classList.remove('hidden');
             this.els.btnDownload.classList.remove('hidden');
@@ -275,7 +287,7 @@ class UIManager {
     updateStatus(state, text) {
         this.els.statusDot.className = `status-dot st-${state}`;
         this.els.statusText.innerText = text;
-        const colorMap = { 'active': '#28a745', 'connecting': '#d39e00', 'offline': 'gray', 'timeout': '#dc3545' };
+        const colorMap = { 'active': '#28a745', 'connecting': '#d39e00', 'offline': 'gray', 'timeout': '#dc3545', 'stopped': 'gray' };
         this.els.statusText.style.color = colorMap[state] || 'gray';
     }
 
@@ -302,7 +314,7 @@ class UIManager {
         return Config.COLORS.RED;
     }
 
-    loadSettings() {
+    loadThresholdSettings() {
         const savedA = localStorage.getItem('th_a');
         const savedB = localStorage.getItem('th_b');
         const savedC = localStorage.getItem('th_c');
@@ -354,7 +366,6 @@ class UIManager {
  * 4. 應用程式入口 (Main)
  */
 async function main() {
-    // 1. 先初始化 Firebase，確保拿到 db 實體
     const firebaseConfig = {
         apiKey: Config.apiKey,
         authDomain: `${Config.projectId}.firebaseapp.com`,
@@ -365,15 +376,21 @@ async function main() {
     const app = initializeApp(firebaseConfig);
     const db = getDatabase(app);
 
-    // 2. 初始化 Managers (★ 把 db 傳給 UIManager)
     const mapManager = new MapManager();
     const uiManager = new UIManager(mapManager, db);
 
     let backendState = 'offline';
     let lastGpsData = null;
 
-    // 3. 開始監聽資料
-    // ★ 注意：這裡使用 Config.dbPath，它現在預設會等於 projectId，所以會聽對位置
+    // ★ 新增：監聽後端傳來的設定檔
+    // 當後端 Controller.py 啟動時，會把 config.json 的內容推送到這裡
+    onValue(ref(db, `${Config.projectId}/settings/current_config`), (snapshot) => {
+        const configData = snapshot.val();
+        if (configData) {
+            uiManager.syncConfigFromBackend(configData);
+        }
+    });
+
     onValue(ref(db, `${Config.dbPath}/status`), (snapshot) => {
         const data = snapshot.val();
         if (!data) return;
