@@ -3,11 +3,23 @@ import { getDatabase, ref, onValue, onChildAdded } from "https://www.gstatic.com
 
 /**
  * 1. 設定管理 (Configuration)
+ * 優先從 LocalStorage 讀取使用者設定，若無則讀取 URL 參數，最後才是預設值
  */
 const Config = (() => {
     const urlParams = new URLSearchParams(window.location.search);
+    
+    // 從 LocalStorage 讀取設定
+    const savedProject = localStorage.getItem('cfg_project_id');
+    const savedIp = localStorage.getItem('cfg_gps_ip');
+    const savedPort = localStorage.getItem('cfg_gps_port');
+    const savedUnit = localStorage.getItem('cfg_conc_unit');
+
     return {
-        projectId: urlParams.get('id') || "real-time-gps-84c8a",
+        projectId: savedProject || urlParams.get('id') || "real-time-gps-84c8a",
+        gpsIp: savedIp || "192.168.1.100", // 預設值
+        gpsPort: savedPort || "8080",      // 預設值
+        concUnit: savedUnit || "ppm",      // 預設值
+        
         apiKey: urlParams.get('key') || "AIzaSyCjPnL5my8NsG7XYCbABGh45KtKM9s4SlI",
         dbPath: urlParams.get('path') || "test_project",
         dbURL: urlParams.get('db') || null,
@@ -54,14 +66,16 @@ class MapManager {
         const circle = L.circleMarker(pos, {
             color: 'white', fillColor: color, fillOpacity: 0.9, weight: 1, radius: 8
         });
-        
         circle.concValue = data.conc;
+
+        // 使用 Config 中的單位
+        const unit = data.conc_unit || Config.concUnit;
 
         const tooltipHtml = `
             <div style="text-align: left; line-height: 1.5;">
                 <span>⏰ 時間:</span> ${data.timestamp}<br>
                 <span>📍 經緯:</span> ${data.lon.toFixed(6)}, ${data.lat.toFixed(6)}<br>
-                <span>🧪 濃度:</span> ${data.conc} ${data.conc_unit}<br>
+                <span>🧪 濃度:</span> ${data.conc} ${unit}<br>
             </div>`;
             
         circle.bindTooltip(tooltipHtml, {
@@ -82,17 +96,16 @@ class MapManager {
 
 /**
  * 3. 介面管理器 (UIManager)
- * ★這裡包含了你剛剛要求的按鈕切換與彈窗邏輯★
  */
 class UIManager {
     constructor(mapManager) {
         this.mapManager = mapManager;
         this.thresholds = { a: 50, b: 100, c: 150 };
-        this.isRecording = false; // 紀錄按鈕狀態
+        this.isRecording = false;
 
         this.initDOM();
-        this.bindEvents(); // 綁定按鈕事件
-        this.loadSettings();
+        this.bindEvents();
+        this.loadSettings(); // 載入所有設定
         this.startClock();
     }
 
@@ -104,21 +117,28 @@ class UIManager {
             conc: document.getElementById('concentration'),
             statusDot: document.getElementById('status-dot'),
             statusText: document.getElementById('connection-text'),
-            statusMsg: document.getElementById('status-msg'),
             autoCenter: document.getElementById('autoCenter'),
             
-            // --- 新增：彈出視窗相關 ---
+            // 彈出視窗
             modal: document.getElementById('settings-modal'),
             btnOpenSettings: document.getElementById('btn-open-settings'),
             btnCloseModal: document.getElementById('btn-close-modal'),
-            btnSave: document.getElementById('btn-save-settings'),
+            btnSaveBackend: document.getElementById('btn-save-backend'), // 儲存後端參數
 
-            // --- 新增：底部按鈕相關 ---
+            // 後端參數輸入框
+            backendInputs: {
+                project: document.getElementById('set-project-id'),
+                ip: document.getElementById('set-gps-ip'),
+                port: document.getElementById('set-gps-port'),
+                unit: document.getElementById('set-conc-unit')
+            },
+
+            // 底部按鈕
             btnStart: document.getElementById('btn-start'),
             btnUpload: document.getElementById('btn-upload'),
             btnDownload: document.getElementById('btn-download'),
 
-            // 輸入框與顯示文字
+            // 閾值輸入
             inputs: {
                 a: document.getElementById('val-a'),
                 b: document.getElementById('val-b'),
@@ -132,101 +152,92 @@ class UIManager {
             msgBox: document.getElementById('msg-box')
         };
 
-        this.els.path.innerText = Config.dbPath;
+        this.els.path.innerText = Config.projectId; // 這裡改顯示 Project ID
     }
 
-    // --- ★ 新增：綁定所有按鈕事件 ---
     bindEvents() {
-        // 1. 彈出視窗開關
+        // --- 彈出視窗 ---
         this.els.btnOpenSettings.addEventListener('click', () => {
+            // 打開時把目前的 Config 值填入輸入框
+            this.els.backendInputs.project.value = Config.projectId;
+            this.els.backendInputs.ip.value = Config.gpsIp;
+            this.els.backendInputs.port.value = Config.gpsPort;
+            this.els.backendInputs.unit.value = Config.concUnit;
             this.els.modal.classList.remove('hidden');
         });
 
-        this.els.btnCloseModal.addEventListener('click', () => {
-            this.els.modal.classList.add('hidden');
-        });
-
-        // 點擊視窗外部關閉
+        this.els.btnCloseModal.addEventListener('click', () => this.els.modal.classList.add('hidden'));
         this.els.modal.addEventListener('click', (e) => {
             if (e.target === this.els.modal) this.els.modal.classList.add('hidden');
         });
 
-        // 2. 儲存設定按鈕
-        this.els.btnSave.addEventListener('click', () => {
-            this.saveSettings();
-            this.els.modal.classList.add('hidden');
+        // --- 儲存後端參數 ---
+        this.els.btnSaveBackend.addEventListener('click', () => {
+            this.saveBackendSettings();
         });
 
-        // 3. 閾值輸入框 Enter 鍵儲存
+        // --- 儲存閾值 (Enter 鍵) ---
         Object.values(this.els.inputs).forEach(input => {
             input.addEventListener('keydown', (e) => {
                 if (e.key === 'Enter') {
                     e.preventDefault();
                     input.blur();
-                    this.saveSettings();
+                    this.saveThresholdSettings();
                 }
             });
         });
 
-        // 4. 底部開始/停止按鈕邏輯
-        this.els.btnStart.addEventListener('click', () => {
-            this.toggleRecordingState();
-        });
-
-        // 5. 上傳/下載 (暫時只有 alert)
-        this.els.btnUpload.addEventListener('click', () => alert("上傳功能開發中..."));
+        // --- 底部按鈕 ---
+        this.els.btnStart.addEventListener('click', () => this.toggleRecordingState());
+        this.els.btnUpload.addEventListener('click', () => alert(`準備上傳至 IP: ${Config.gpsIp} Port: ${Config.gpsPort}`));
         this.els.btnDownload.addEventListener('click', () => alert("下載功能開發中..."));
     }
 
-    // --- ★ 新增：切換錄製狀態邏輯 ---
+    // --- 儲存後端參數到 LocalStorage ---
+    saveBackendSettings() {
+        const p = this.els.backendInputs.project.value.trim();
+        const i = this.els.backendInputs.ip.value.trim();
+        const pt = this.els.backendInputs.port.value.trim();
+        const u = this.els.backendInputs.unit.value.trim();
+
+        if(!p) return alert("專案名稱不能為空");
+
+        localStorage.setItem('cfg_project_id', p);
+        localStorage.setItem('cfg_gps_ip', i);
+        localStorage.setItem('cfg_gps_port', pt);
+        localStorage.setItem('cfg_conc_unit', u);
+
+        alert("參數已儲存，網頁將重新整理以套用新設定");
+        this.els.modal.classList.add('hidden');
+        location.reload(); // 因為修改 Project ID 需要重新初始化 Firebase，最簡單是用 reload
+    }
+
     toggleRecordingState() {
         if (!this.isRecording) {
-            // --- 動作：開始 ---
             this.isRecording = true;
-            
-            // 隱藏上傳與下載
             this.els.btnUpload.classList.add('hidden');
             this.els.btnDownload.classList.add('hidden');
-            
-            // 變更按鈕樣式
             this.els.btnStart.innerText = "停止";
             this.els.btnStart.classList.add('btn-stop');
-            
-            console.log("狀態變更：開始紀錄");
-            // TODO: 這裡未來可以加入寫入 Firebase 'status/state' = 'active' 的邏輯
         } else {
-            // --- 動作：停止 ---
             this.isRecording = false;
-            
-            // 顯示上傳與下載
             this.els.btnUpload.classList.remove('hidden');
             this.els.btnDownload.classList.remove('hidden');
-            
-            // 恢復按鈕樣式
             this.els.btnStart.innerText = "開始";
             this.els.btnStart.classList.remove('btn-stop');
-            
-            console.log("狀態變更：停止紀錄");
-            // TODO: 這裡未來可以加入寫入 Firebase 'status/state' = 'offline' 的邏輯
         }
     }
 
     startClock() {
-        setInterval(() => {
-            this.els.time.innerText = new Date().toLocaleTimeString('zh-TW', { hour12: false });
-        }, 1000);
+        setInterval(() => this.els.time.innerText = new Date().toLocaleTimeString('zh-TW', { hour12: false }), 1000);
     }
 
-    updateStatus(state, text, msg) {
-        const { statusDot, statusText, statusMsg } = this.els;
-        statusDot.className = `status-dot st-${state}`;
-        statusText.innerText = text;
-        statusMsg.innerText = msg;
+    updateStatus(state, text) {
+        this.els.statusDot.className = `status-dot st-${state}`;
+        this.els.statusText.innerText = text;
         
-        const colorMap = {
-            'active': '#28a745', 'connecting': '#d39e00', 'offline': 'gray', 'timeout': '#dc3545'
-        };
-        statusText.style.color = colorMap[state] || 'gray';
+        const colorMap = { 'active': '#28a745', 'connecting': '#d39e00', 'offline': 'gray', 'timeout': '#dc3545' };
+        this.els.statusText.style.color = colorMap[state] || 'gray';
     }
 
     updateRealtimeData(data, isActive) {
@@ -239,7 +250,7 @@ class UIManager {
 
         this.els.coords.innerText = `${data.lat.toFixed(6)}, ${data.lon.toFixed(6)}`;
         if (data.conc !== undefined) {
-            const unit = data.conc_unit || '';
+            const unit = data.conc_unit || Config.concUnit; // 優先使用資料裡的單位，否則用設定值
             this.els.conc.innerText = `${data.conc} ${unit}`;
             this.els.conc.style.color = (data.conc >= this.thresholds.c) ? 'red' : 'black';
         }
@@ -253,18 +264,19 @@ class UIManager {
     }
 
     loadSettings() {
-        const savedA = localStorage.getItem(`${Config.dbPath}_th_a`);
-        const savedB = localStorage.getItem(`${Config.dbPath}_th_b`);
-        const savedC = localStorage.getItem(`${Config.dbPath}_th_c`);
+        // 載入閾值
+        const savedA = localStorage.getItem('th_a');
+        const savedB = localStorage.getItem('th_b');
+        const savedC = localStorage.getItem('th_c');
 
         if (savedA) this.els.inputs.a.value = savedA;
         if (savedB) this.els.inputs.b.value = savedB;
         if (savedC) this.els.inputs.c.value = savedC;
 
-        this.saveSettings(true); 
+        this.saveThresholdSettings(true); 
     }
 
-    saveSettings(isSilent = false) {
+    saveThresholdSettings(isSilent = false) {
         const { a: elA, b: elB, c: elC } = this.els.inputs;
         const msgBox = this.els.msgBox;
 
@@ -291,14 +303,14 @@ class UIManager {
         this.els.displays.b.innerText = valB;
         this.els.displays.c.innerText = valC;
 
-        localStorage.setItem(`${Config.dbPath}_th_a`, valA);
-        localStorage.setItem(`${Config.dbPath}_th_b`, valB);
-        localStorage.setItem(`${Config.dbPath}_th_c`, valC);
+        localStorage.setItem('th_a', valA);
+        localStorage.setItem('th_b', valB);
+        localStorage.setItem('th_c', valC);
 
         this.mapManager.refreshColors(this.getColor.bind(this));
 
         if (!isSilent) {
-            msgBox.innerText = "✅ 設定已更新";
+            msgBox.innerText = "✅ 閾值已更新";
             msgBox.style.color = "green";
             setTimeout(() => msgBox.innerText = "", 2000);
         }
@@ -325,19 +337,17 @@ async function main() {
     let backendState = 'offline';
     let lastGpsData = null;
 
-    // --- 監聽狀態 ---
     onValue(ref(db, `${Config.dbPath}/status`), (snapshot) => {
         const data = snapshot.val();
         if (!data) return;
 
         backendState = data.state;
         let displayText = '未連線';
-        
         if (data.state === 'active') displayText = '連線正常';
         else if (data.state === 'connecting') displayText = '連線中...';
         else if (data.state === 'timeout') displayText = '連線逾時';
 
-        uiManager.updateStatus(data.state, displayText, data.message || '');
+        uiManager.updateStatus(data.state, displayText);
         
         if (data.state === 'active' && lastGpsData) {
             uiManager.updateRealtimeData(lastGpsData, true);
@@ -346,7 +356,6 @@ async function main() {
         }
     });
 
-    // --- 監聽最新位置 ---
     onValue(ref(db, `${Config.dbPath}/latest`), (snapshot) => {
         const data = snapshot.val();
         if (data && data.lat) {
@@ -360,7 +369,6 @@ async function main() {
         }
     });
 
-    // --- 監聽歷史路徑 ---
     onChildAdded(ref(db, `${Config.dbPath}/history`), (snapshot) => {
         const data = snapshot.val();
         if (data) {

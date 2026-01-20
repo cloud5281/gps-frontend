@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>即時移動測繪</title>
+    <title>即時移動測繪系統</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <link rel="stylesheet" href="style.css">
 </head>
@@ -12,7 +12,7 @@
     <div class="info-panel">
         <div class="panel-header-row">
             <span class="panel-title">狀態監控</span>
-            <button id="btn-open-settings" class="btn-icon">⚙️ 參數設定</button>
+            <button id="btn-open-settings" class="btn-icon">⚙️ 系統參數</button>
         </div>
         
         <div class="status-box">
@@ -26,51 +26,73 @@
         <div class="data-row">濃度: <span id="concentration">-</span></div>
         
         <label class="checkbox-label"><input type="checkbox" id="autoCenter" checked> 自動跟隨</label>
+
+        <div class="threshold-section">
+            <small class="section-title">濃度閾值設定 (Enter 儲存)</small>
+            
+            <div class="th-grid-row">
+                <span class="th-label text-green">綠</span>
+                <span></span> <span class="th-symbol">&lt;</span>
+                <input type="number" id="val-a" value="50" class="th-input">
+            </div>
+
+            <div class="th-grid-row">
+                <span class="th-label text-yellow">黃</span>
+                <span id="disp-a" class="th-start-val">50</span>
+                <span class="th-symbol">~</span>
+                <input type="number" id="val-b" value="100" class="th-input">
+            </div>
+
+            <div class="th-grid-row">
+                <span class="th-label text-orange">橙</span>
+                <span id="disp-b" class="th-start-val">100</span>
+                <span class="th-symbol">~</span>
+                <input type="number" id="val-c" value="150" class="th-input">
+            </div>
+
+            <div class="th-grid-row">
+                <span class="th-label text-red">紅</span>
+                <span></span> <span class="th-symbol">&ge;</span>
+                <span id="disp-c" class="th-static-end">150</span>
+            </div>
+
+            <div class="msg-container">
+                <span id="msg-box"></span>
+            </div>
+        </div>
     </div>
 
     <div id="settings-modal" class="modal-overlay hidden">
         <div class="modal-content">
             <div class="modal-header">
-                <h3>濃度閾值設定</h3>
+                <h3>系統參數設定</h3>
                 <span id="btn-close-modal" class="close-btn">&times;</span>
             </div>
             
             <div class="modal-body">
-                <p class="hint-text">設定各顏色區間的數值 (Enter 儲存)</p>
+                <div class="form-group">
+                    <label>專案名稱 (Project ID)</label>
+                    <input type="text" id="set-project-id" class="form-input" placeholder="例如: real-time-gps">
+                </div>
                 
-                <div class="th-grid-row">
-                    <span class="th-label text-green">綠</span>
-                    <span></span> <span class="th-symbol">&lt;</span>
-                    <input type="number" id="val-a" value="50" class="th-input">
+                <div class="form-group">
+                    <label>GPS 連線 IP</label>
+                    <input type="text" id="set-gps-ip" class="form-input" placeholder="192.168.x.x">
                 </div>
 
-                <div class="th-grid-row">
-                    <span class="th-label text-yellow">黃</span>
-                    <span id="disp-a" class="th-start-val">50</span>
-                    <span class="th-symbol">~</span>
-                    <input type="number" id="val-b" value="100" class="th-input">
+                <div class="form-group">
+                    <label>GPS 連線 Port</label>
+                    <input type="number" id="set-gps-port" class="form-input" placeholder="8080">
                 </div>
 
-                <div class="th-grid-row">
-                    <span class="th-label text-orange">橙</span>
-                    <span id="disp-b" class="th-start-val">100</span>
-                    <span class="th-symbol">~</span>
-                    <input type="number" id="val-c" value="150" class="th-input">
-                </div>
-
-                <div class="th-grid-row">
-                    <span class="th-label text-red">紅</span>
-                    <span></span> <span class="th-symbol">&ge;</span>
-                    <span id="disp-c" class="th-static-end">150</span>
-                </div>
-
-                <div class="msg-container">
-                    <span id="msg-box"></span>
+                <div class="form-group">
+                    <label>濃度單位</label>
+                    <input type="text" id="set-conc-unit" class="form-input" placeholder="ppm, ppb...">
                 </div>
             </div>
             
             <div class="modal-footer">
-                <button id="btn-save-settings" class="btn-primary">儲存設定</button>
+                <button id="btn-save-backend" class="btn-primary">儲存並應用</button>
             </div>
         </div>
     </div>
