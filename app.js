@@ -24,7 +24,6 @@ const Config = (() => {
         concUnit: savedUnit || "ppb",
         
         apiKey: urlParams.get('key') || "AIzaSyCjPnL5my8NsG7XYCbABGh45KtKM9s4SlI",
-        // ★ 修正重點：dbPath 如果沒有特別指定，就應該跟 projectId 一樣，不然會聽錯頻道
         dbPath: urlParams.get('path') || finalProjectId, 
         dbURL: urlParams.get('db') || null,
         COLORS: {

@@ -3,6 +3,7 @@ import threading
 import time
 import firebase_admin
 import webbrowser
+import json
 
 from firebase_admin import credentials, db
 from Config import Config
@@ -54,6 +55,57 @@ class SystemController:
             self.logger.info("📡 Controller 已連線至 Firebase，等待前端指令...")
         except Exception as e:
             self.logger.error(f"❌ Firebase 連線失敗: {e}")
+
+    def _push_current_config_to_firebase(self):
+        try:
+            data = {
+                "project_id": self.cfg.PROJECT_NAME,
+                "gps_ip": self.cfg.GPS_IP,
+                "gps_port": self.cfg.GPS_PORT,
+                "conc_unit": self.cfg.CONC_UNIT
+            }
+            # 寫入到 settings/current_config 節點
+            db.reference(f'{self.cfg.PROJECT_NAME}/settings/current_config').set(data)
+            # self.logger.info("📤 已將目前參數同步至 Firebase，前端可自動讀取")
+        except Exception as e:
+            self.logger.warning(f"同步參數失敗: {e}")
+
+    def _handle_config_update(self, event):
+        if event.data is None or event.data == "": return
+        
+        new_settings = event.data
+        self.logger.info(f"⚙️ 收到參數更新請求: {new_settings}")
+        
+        try:
+            # 1. 讀取原始 json 檔 (保持其他欄位不變)
+            with open(self.config_file, 'r', encoding='utf-8') as f:
+                config_data = json.load(f)
+
+            # 2. 更新數值
+            if 'project_id' in new_settings:
+                config_data['settings']['project_name'] = new_settings['project_id']
+            if 'gps_ip' in new_settings:
+                config_data['gps']['ip'] = new_settings['gps_ip']
+            if 'gps_port' in new_settings:
+                config_data['gps']['port'] = int(new_settings['gps_port'])
+            if 'conc_unit' in new_settings:
+                config_data['conc']['unit'] = new_settings['conc_unit']
+
+            # 3. 寫回 config.json
+            with open(self.config_file, 'w', encoding='utf-8') as f:
+                json.dump(config_data, f, indent=2, ensure_ascii=False)
+            
+            self.logger.info("✅ config.json 已更新！")
+
+            # 4. 如果專案名稱改了，必須重啟程式才能監聽新頻道
+            # 這裡我們先做簡單處理：更新記憶體內的 cfg
+            self.cfg = Config(self.config_file) 
+            db.reference(f'{self.cfg.PROJECT_NAME}/control/config_update').set(None)
+            # 再推一次新的設定上去確認
+            self._push_current_config_to_firebase()
+
+        except Exception as e:
+            self.logger.error(f"❌ 更新設定檔失敗: {e}")
 
     def _command_handler(self, event):
         """當 Firebase 上的 'control/command' 數值改變時，會觸發此函式"""
@@ -117,6 +169,10 @@ class SystemController:
         
         # 開始監聽 (listen 是非阻塞的，所以下面需要一個 while loop 讓程式不結束)
         cmd_listener = cmd_ref.listen(self._command_handler)
+
+        config_ref = db.reference(f'{self.cfg.PROJECT_NAME}/control/config_update')
+        config_ref.set(None) # 清空舊請求
+        config_listener = config_ref.listen(self._handle_config_update)
         
         self.logger.info("🟢 後端程式已開始運作")
         self.logger.info("按 Ctrl+C 可關閉後端程式。")
@@ -129,6 +185,7 @@ class SystemController:
             if self.process and self.process.running:
                 self.stop_process()
             cmd_listener.close()
+            config_listener.close()
 
 if __name__ == "__main__":
     ctrl = SystemController()
