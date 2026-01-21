@@ -3,6 +3,13 @@ body, html { margin: 0; padding: 0; height: 100%; font-family: "Microsoft JhengH
 /* 地圖全螢幕 */
 #map { height: 100vh; width: 100%; z-index: 1; }
 
+/* 隱藏 Chrome, Safari, Edge, Opera 的數字輸入框箭頭 */
+input[type=number]::-webkit-outer-spin-button,
+input[type=number]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
 /* --- 右上角資訊面板 --- */
 /* --- 面板整體容器 --- */
 .info-panel {

@@ -7,20 +7,22 @@ import { getDatabase, ref, onValue, onChildAdded, set } from "https://www.gstati
 const Config = (() => {
     const urlParams = new URLSearchParams(window.location.search);
     
-    // 從 URL 獲取關鍵連線資訊
-    // id = Firebase Project ID (例如: realtime-gps-123)
-    // path = Database Root Node (例如: 20260120，即您定義的 project_name)
-    const firebaseId = urlParams.get('id') || "real-time-gps-84c8a"; 
-    const projectPath = urlParams.get('path') || "test_project";
+    const firebaseId = urlParams.get('id'); 
+    const projectPath = urlParams.get('path');
+
+    if (!firebaseId || !projectPath) {
+        alert("❌ 網址參數錯誤：缺少 id (Firebase ID) 或 path (專案名稱)");
+    }
 
     return {
         firebaseProjectId: firebaseId,
         apiKey: urlParams.get('key') || "AIzaSyCjPnL5my8NsG7XYCbABGh45KtKM9s4SlI",
         dbRootPath: projectPath, 
-        gpsIp: "Waiting...",
-        gpsPort: "...",
-        concUnit: "-",
-        dbURL: urlParams.get('db') || `https://${firebaseId}-default-rtdb.asia-southeast1.firebasedatabase.app`,
+        // 預設值給空字串或載入中，方便識別是否已同步
+        gpsIp: "",
+        gpsPort: "",
+        concUnit: "",
+        dbURL: urlParams.get('db') || null,
         COLORS: {
             GREEN: '#28a745', YELLOW: '#ffc107', ORANGE: '#fd7e14', RED: '#dc3545'
         }
@@ -28,7 +30,7 @@ const Config = (() => {
 })();
 
 /**
- * 2. 地圖管理器 (MapManager) - 保持不變
+ * 2. 地圖管理器 (MapManager) - 無變更
  */
 class MapManager {
     constructor() {
@@ -67,18 +69,13 @@ class MapManager {
         circle.concValue = data.conc;
 
         const unit = data.conc_unit || Config.concUnit;
-
         const tooltipHtml = `
             <div style="text-align: left; line-height: 1.5;">
                 <span>⏰ 時間:</span> ${data.timestamp}<br>
                 <span>📍 經緯:</span> ${data.lon.toFixed(6)}, ${data.lat.toFixed(6)}<br>
                 <span>🧪 濃度:</span> ${data.conc} ${unit}<br>
             </div>`;
-            
-        circle.bindTooltip(tooltipHtml, {
-            permanent: false, direction: 'top', className: 'custom-tooltip', offset: [0, -8]
-        });
-        
+        circle.bindTooltip(tooltipHtml, { permanent: false, direction: 'top', className: 'custom-tooltip', offset: [0, -8] });
         this.historyLayer.addLayer(circle);
     }
 
@@ -110,7 +107,7 @@ class UIManager {
     initDOM() {
         this.els = {
             time: document.getElementById('time'),
-            path: document.getElementById('currentPath'), // 顯示當前專案名稱
+            path: document.getElementById('currentPath'),
             coords: document.getElementById('coords'),
             conc: document.getElementById('concentration'),
             statusDot: document.getElementById('status-dot'),
@@ -123,7 +120,6 @@ class UIManager {
             btnSaveBackend: document.getElementById('btn-save-backend'),
 
             backendInputs: {
-                // 這裡對應的是 project_name (資料庫路徑)
                 project: document.getElementById('set-project-id'),
                 ip: document.getElementById('set-gps-ip'),
                 port: document.getElementById('set-gps-port'),
@@ -147,36 +143,43 @@ class UIManager {
             msgBox: document.getElementById('msg-box')
         };
 
-        // 預設顯示 URL 帶入的 project path
         this.els.path.innerText = Config.dbRootPath;
     }
 
+    // ★ 核心：同步後端參數，並更新 Config 物件
     syncConfigFromBackend(data) {
         if (!data) return;
         
-        // 這裡 data.project_name 對應的是 DB 路徑
-        Config.dbRootPath = data.project_name; 
-        Config.gpsIp = data.gps_ip;
-        Config.gpsPort = data.gps_port;
-        Config.concUnit = data.conc_unit;
-        
-        // 更新 UI
-        this.els.path.innerText = data.project_name;
-        this.els.backendInputs.project.value = data.project_name;
-        this.els.backendInputs.ip.value = data.gps_ip;
-        this.els.backendInputs.port.value = data.gps_port;
-        this.els.backendInputs.unit.value = data.conc_unit;
+        console.log("🔥 [Sync] 收到後端 Config:", data); // Debug 用
 
-        console.log("✅ 已從後端 config.json 同步參數");
+        // 1. 更新 Config 全域物件
+        Config.dbRootPath = data.project_name || Config.dbRootPath; 
+        Config.gpsIp = data.gps_ip || "";
+        Config.gpsPort = data.gps_port || "";
+        Config.concUnit = data.conc_unit || "";
+        
+        // 2. 更新 UI 顯示 (標題)
+        this.els.path.innerText = Config.dbRootPath;
+
+        // 3. 如果設定視窗正好開著，直接更新輸入框內容，讓使用者看到最新值
+        if (!this.els.modal.classList.contains('hidden')) {
+            this.fillSettingsInputs();
+        }
+    }
+
+    // 輔助函式：把 Config 的值填入輸入框
+    fillSettingsInputs() {
+        this.els.backendInputs.project.value = Config.dbRootPath;
+        this.els.backendInputs.ip.value = Config.gpsIp;
+        this.els.backendInputs.port.value = Config.gpsPort;
+        this.els.backendInputs.unit.value = Config.concUnit;
+        console.log("📝 設定視窗數值已更新");
     }
 
     bindEvents() {
+        // 打開設定視窗
         this.els.btnOpenSettings.addEventListener('click', () => {
-            // 打開時，顯示當前 Config
-            this.els.backendInputs.project.value = Config.dbRootPath;
-            this.els.backendInputs.ip.value = Config.gpsIp;
-            this.els.backendInputs.port.value = Config.gpsPort;
-            this.els.backendInputs.unit.value = Config.concUnit;
+            this.fillSettingsInputs(); // 打開時填入當前 Config
             this.els.modal.classList.remove('hidden');
         });
 
@@ -199,22 +202,43 @@ class UIManager {
             });
         });
 
-        this.els.btnStart.addEventListener('click', () => this.toggleRecordingState());
+        // ★ 新增：針對 Port 輸入框限制只能輸入整數 (擋掉 . e -)
+        const portInput = this.els.backendInputs.port;
+        if(portInput) {
+            portInput.addEventListener('keydown', (e) => {
+                // 允許的操作: Backspace(8), Tab(9), Enter(13), Escape(27), Delete(46), 方向鍵(35-40)
+                const allowedKeys = [8, 9, 13, 27, 46];
+                // 允許 Ctrl+A, Ctrl+C, Ctrl+V
+                if (allowedKeys.includes(e.keyCode) || 
+                   (e.keyCode >= 35 && e.keyCode <= 40) ||
+                   (e.ctrlKey === true || e.metaKey === true)) {
+                    return;
+                }
+                
+                // 檢查是否為數字 (主鍵盤 48-57, 數字鍵盤 96-105)
+                const isNumber = (e.keyCode >= 48 && e.keyCode <= 57) || (e.keyCode >= 96 && e.keyCode <= 105);
+                
+                if (!isNumber) {
+                    e.preventDefault(); // 阻止輸入
+                }
+            });
+        }
+
+        this.els.btnStart.addEventListener('click', () => this.toggleRecordingCommand());
         this.els.btnUpload.addEventListener('click', () => alert(`準備上傳至 IP: ${Config.gpsIp} Port: ${Config.gpsPort}`));
         this.els.btnDownload.addEventListener('click', () => alert("下載功能開發中..."));
     }
 
     saveBackendSettings() {
-        const p = this.els.backendInputs.project.value.trim(); // 這是新的 project_name
+        const p = this.els.backendInputs.project.value.trim();
         const i = this.els.backendInputs.ip.value.trim();
         const pt = this.els.backendInputs.port.value.trim();
         const u = this.els.backendInputs.unit.value.trim();
 
         if(!p) return alert("專案名稱不能為空");
 
-        // 準備要送給後端的資料
         const updateData = {
-            project_name: p, // 對應 Python 的 key
+            project_name: p,
             gps_ip: i,
             gps_port: pt,
             conc_unit: u
@@ -222,11 +246,9 @@ class UIManager {
 
         const btn = this.els.btnSaveBackend;
         const originalText = btn.innerText;
-
         btn.innerText = "正在傳送...";
         btn.disabled = true;
 
-        // 寫入到「當前專案」的 control/config_update，後端監聽到了會去改 config.json
         const updateRef = ref(this.db, `${Config.dbRootPath}/control/config_update`);
         
         set(updateRef, updateData).then(() => {
@@ -239,11 +261,10 @@ class UIManager {
                 btn.disabled = false;
                 this.els.modal.classList.add('hidden');
                 
-                // 如果修改了專案名稱 (DB Path)，網頁需要重整以讀取新路徑
                 if (p !== Config.dbRootPath) {
                     alert("專案名稱已修改，頁面將重新整理以載入新專案。");
                     const url = new URL(window.location);
-                    url.searchParams.set('path', p); // 更新 URL 的 path 參數
+                    url.searchParams.set('path', p);
                     window.history.pushState({}, '', url);
                     location.reload();
                 }
@@ -255,25 +276,26 @@ class UIManager {
         });
     }
 
-    toggleRecordingState() {
+    toggleRecordingCommand() {
         const cmdRef = ref(this.db, `${Config.dbRootPath}/control/command`);
-        
-        if (!this.isRecording) {
-            set(cmdRef, "start");
-            this.isRecording = true;
+        const newCmd = this.isRecording ? "stop" : "start";
+        set(cmdRef, newCmd);
+    }
+
+    setButtonState(isRunning) {
+        this.isRecording = isRunning;
+        if (isRunning) {
+            this.els.btnStart.innerText = "停止";
+            this.els.btnStart.classList.add('btn-stop');
             this.els.btnUpload.classList.add('hidden');
             this.els.btnDownload.classList.add('hidden');
             this.els.btnOpenSettings.classList.add('invisible');
-            this.els.btnStart.innerText = "停止";
-            this.els.btnStart.classList.add('btn-stop');
         } else {
-            set(cmdRef, "stop");
-            this.isRecording = false;
+            this.els.btnStart.innerText = "開始";
+            this.els.btnStart.classList.remove('btn-stop');
             this.els.btnUpload.classList.remove('hidden');
             this.els.btnDownload.classList.remove('hidden');
             this.els.btnOpenSettings.classList.remove('invisible');
-            this.els.btnStart.innerText = "開始";
-            this.els.btnStart.classList.remove('btn-stop');
         }
     }
 
@@ -281,7 +303,7 @@ class UIManager {
         setInterval(() => this.els.time.innerText = new Date().toLocaleTimeString('zh-TW', { hour12: false }), 1000);
     }
 
-    updateStatus(state, text) {
+    updateStatusText(state, text) {
         this.els.statusDot.className = `status-dot st-${state}`;
         this.els.statusText.innerText = text;
         const colorMap = { 'active': '#28a745', 'connecting': '#d39e00', 'offline': 'gray', 'timeout': '#dc3545', 'stopped': 'gray' };
@@ -295,7 +317,6 @@ class UIManager {
             this.els.conc.style.color = 'black';
             return;
         }
-
         this.els.coords.innerText = `${data.lat.toFixed(6)}, ${data.lon.toFixed(6)}`;
         if (data.conc !== undefined) {
             const unit = data.conc_unit || Config.concUnit;
@@ -330,7 +351,6 @@ class UIManager {
         const valA = parseFloat(elA.value);
         const valB = parseFloat(elB.value);
         const valC = parseFloat(elC.value);
-
         let error = null;
         if (isNaN(valA) || isNaN(valB) || isNaN(valC)) error = "❌ 請填入完整數值";
         else if (valA >= valB) { elA.classList.add('input-error'); error = "❌ 黃色需大於綠色"; }
@@ -341,7 +361,6 @@ class UIManager {
             msgBox.style.color = "red";
             return;
         }
-
         this.thresholds = { a: valA, b: valB, c: valC };
         this.els.displays.a.innerText = valA;
         this.els.displays.b.innerText = valB;
@@ -350,7 +369,6 @@ class UIManager {
         localStorage.setItem('th_b', valB);
         localStorage.setItem('th_c', valC);
         this.mapManager.refreshColors(this.getColor.bind(this));
-
         if (!isSilent) {
             msgBox.innerText = "✅ 閾值已更新";
             msgBox.style.color = "green";
@@ -363,7 +381,6 @@ class UIManager {
  * 4. 應用程式入口 (Main)
  */
 async function main() {
-    // 這裡使用 Config.firebaseProjectId (db_id) 進行連線
     const firebaseConfig = {
         apiKey: Config.apiKey,
         authDomain: `${Config.firebaseProjectId}.firebaseapp.com`,
@@ -380,14 +397,15 @@ async function main() {
     let backendState = 'offline';
     let lastGpsData = null;
 
-    // ★ 關鍵：監聽 settings/current_config
-    // 這裡的路徑使用 Config.dbRootPath (即 project_name)
+    // ★ 監聽後端設定檔 (讀取參數)
     const settingsRef = ref(db, `${Config.dbRootPath}/settings/current_config`);
     onValue(settingsRef, (snapshot) => {
         const configData = snapshot.val();
+        // 無論有沒有值都呼叫，方便 Debug
         if (configData) {
-            // 收到的資料會包含 project_name, gps_ip 等，更新到 UI
             uiManager.syncConfigFromBackend(configData);
+        } else {
+            console.warn("⚠️ 尚未收到後端 Config 資料，請檢查 Firebase 路徑或後端是否已啟動");
         }
     });
 
@@ -399,10 +417,17 @@ async function main() {
         let displayText = '未連線';
         if (data.state === 'active') displayText = '連線正常';
         else if (data.state === 'connecting') displayText = '連線中...';
-        else if (data.state === 'timeout') displayText = '連線逾時';
+        else if (data.state === 'timeout') displayText = '連線逾時(已停止)';
         else if (data.state === 'stopped') displayText = '已停止';
 
-        uiManager.updateStatus(data.state, displayText);
+        uiManager.updateStatusText(data.state, displayText);
+        
+        // 根據狀態設定按鈕
+        if (data.state === 'active') {
+            uiManager.setButtonState(true);
+        } else {
+            uiManager.setButtonState(false);
+        }
         
         if (data.state === 'active' && lastGpsData) {
             uiManager.updateRealtimeData(lastGpsData, true);
