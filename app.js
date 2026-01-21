@@ -7,19 +7,20 @@ import { getDatabase, ref, onValue, onChildAdded, set } from "https://www.gstati
 const Config = (() => {
     const urlParams = new URLSearchParams(window.location.search);
     
-    // 預設先用 URL 或 預設值，稍後會被 Firebase 的值覆蓋
-    const defaultId = "20260120"; 
-    const finalProjectId = urlParams.get('id') || defaultId;
+    // 從 URL 獲取關鍵連線資訊
+    // id = Firebase Project ID (例如: realtime-gps-123)
+    // path = Database Root Node (例如: 20260120，即您定義的 project_name)
+    const firebaseId = urlParams.get('id') || "real-time-gps-84c8a"; 
+    const projectPath = urlParams.get('path') || "test_project";
 
     return {
-        projectId: finalProjectId,
-        gpsIp: "192.168.199.103",
-        gpsPort: "11123",
-        concUnit: "ppb",
-        
+        firebaseProjectId: firebaseId,
         apiKey: urlParams.get('key') || "AIzaSyCjPnL5my8NsG7XYCbABGh45KtKM9s4SlI",
-        dbPath: urlParams.get('path') || finalProjectId, 
-        dbURL: urlParams.get('db') || null,
+        dbRootPath: projectPath, 
+        gpsIp: "Waiting...",
+        gpsPort: "...",
+        concUnit: "-",
+        dbURL: urlParams.get('db') || `https://${firebaseId}-default-rtdb.asia-southeast1.firebasedatabase.app`,
         COLORS: {
             GREEN: '#28a745', YELLOW: '#ffc107', ORANGE: '#fd7e14', RED: '#dc3545'
         }
@@ -102,14 +103,14 @@ class UIManager {
 
         this.initDOM();
         this.bindEvents();
-        this.loadThresholdSettings(); // 只載入閾值，後端參數改由 Firebase 同步
+        this.loadThresholdSettings(); 
         this.startClock();
     }
 
     initDOM() {
         this.els = {
             time: document.getElementById('time'),
-            path: document.getElementById('currentPath'),
+            path: document.getElementById('currentPath'), // 顯示當前專案名稱
             coords: document.getElementById('coords'),
             conc: document.getElementById('concentration'),
             statusDot: document.getElementById('status-dot'),
@@ -122,6 +123,7 @@ class UIManager {
             btnSaveBackend: document.getElementById('btn-save-backend'),
 
             backendInputs: {
+                // 這裡對應的是 project_name (資料庫路徑)
                 project: document.getElementById('set-project-id'),
                 ip: document.getElementById('set-gps-ip'),
                 port: document.getElementById('set-gps-port'),
@@ -145,23 +147,22 @@ class UIManager {
             msgBox: document.getElementById('msg-box')
         };
 
-        this.els.path.innerText = Config.projectId;
+        // 預設顯示 URL 帶入的 project path
+        this.els.path.innerText = Config.dbRootPath;
     }
 
-    // ★ 新增：當從 Firebase 收到後端傳來的 config 時，更新前端變數與 UI
     syncConfigFromBackend(data) {
         if (!data) return;
         
-        // 更新 Config 物件
-        Config.projectId = data.project_id;
+        // 這裡 data.project_name 對應的是 DB 路徑
+        Config.dbRootPath = data.project_name; 
         Config.gpsIp = data.gps_ip;
         Config.gpsPort = data.gps_port;
         Config.concUnit = data.conc_unit;
-        Config.dbPath = data.project_id;
-
-        // 更新 UI 顯示
-        this.els.path.innerText = data.project_id;
-        this.els.backendInputs.project.value = data.project_id;
+        
+        // 更新 UI
+        this.els.path.innerText = data.project_name;
+        this.els.backendInputs.project.value = data.project_name;
         this.els.backendInputs.ip.value = data.gps_ip;
         this.els.backendInputs.port.value = data.gps_port;
         this.els.backendInputs.unit.value = data.conc_unit;
@@ -171,8 +172,8 @@ class UIManager {
 
     bindEvents() {
         this.els.btnOpenSettings.addEventListener('click', () => {
-            // 打開時，確保輸入框顯示的是目前的 Config (可能剛從後端同步過)
-            this.els.backendInputs.project.value = Config.projectId;
+            // 打開時，顯示當前 Config
+            this.els.backendInputs.project.value = Config.dbRootPath;
             this.els.backendInputs.ip.value = Config.gpsIp;
             this.els.backendInputs.port.value = Config.gpsPort;
             this.els.backendInputs.unit.value = Config.concUnit;
@@ -203,9 +204,8 @@ class UIManager {
         this.els.btnDownload.addEventListener('click', () => alert("下載功能開發中..."));
     }
 
-    // ★ 修改：儲存後端參數 -> 發送請求給後端去改 config.json
     saveBackendSettings() {
-        const p = this.els.backendInputs.project.value.trim();
+        const p = this.els.backendInputs.project.value.trim(); // 這是新的 project_name
         const i = this.els.backendInputs.ip.value.trim();
         const pt = this.els.backendInputs.port.value.trim();
         const u = this.els.backendInputs.unit.value.trim();
@@ -214,7 +214,7 @@ class UIManager {
 
         // 準備要送給後端的資料
         const updateData = {
-            project_id: p,
+            project_name: p, // 對應 Python 的 key
             gps_ip: i,
             gps_port: pt,
             conc_unit: u
@@ -226,26 +226,24 @@ class UIManager {
         btn.innerText = "正在傳送...";
         btn.disabled = true;
 
-        // 寫入到 control/config_update，後端 Controller 會監聽這個路徑
-        // 注意：這裡還是送往 "目前連線中" 的專案ID，後端收到後會處理
-        const updateRef = ref(this.db, `${Config.projectId}/control/config_update`);
+        // 寫入到「當前專案」的 control/config_update，後端監聽到了會去改 config.json
+        const updateRef = ref(this.db, `${Config.dbRootPath}/control/config_update`);
         
         set(updateRef, updateData).then(() => {
-            btn.innerText = "✅ 參數已更新至後端";
+            btn.innerText = "✅ 參數已更新";
             btn.style.backgroundColor = "#28a745";
             
             setTimeout(() => {
                 btn.innerText = originalText;
-                btn.style.backgroundColor = ""; // 恢復原色
+                btn.style.backgroundColor = ""; 
                 btn.disabled = false;
                 this.els.modal.classList.add('hidden');
                 
-                // 如果改了專案 ID，前端最好重新整理以連線到新頻道
-                if (p !== Config.projectId) {
-                    alert("專案名稱已修改，頁面將重新整理以連線至新專案。");
-                    // 修改網址列參數，讓下次進來預設就是新的 ID
+                // 如果修改了專案名稱 (DB Path)，網頁需要重整以讀取新路徑
+                if (p !== Config.dbRootPath) {
+                    alert("專案名稱已修改，頁面將重新整理以載入新專案。");
                     const url = new URL(window.location);
-                    url.searchParams.set('id', p);
+                    url.searchParams.set('path', p); // 更新 URL 的 path 參數
                     window.history.pushState({}, '', url);
                     location.reload();
                 }
@@ -258,9 +256,8 @@ class UIManager {
     }
 
     toggleRecordingState() {
-        const cmdRef = ref(this.db, `${Config.projectId}/control/command`);
-        console.log(`正在發送指令到: ${Config.projectId}/control/command`);
-
+        const cmdRef = ref(this.db, `${Config.dbRootPath}/control/command`);
+        
         if (!this.isRecording) {
             set(cmdRef, "start");
             this.isRecording = true;
@@ -366,11 +363,12 @@ class UIManager {
  * 4. 應用程式入口 (Main)
  */
 async function main() {
+    // 這裡使用 Config.firebaseProjectId (db_id) 進行連線
     const firebaseConfig = {
         apiKey: Config.apiKey,
-        authDomain: `${Config.projectId}.firebaseapp.com`,
-        databaseURL: Config.dbURL || `https://${Config.projectId}-default-rtdb.asia-southeast1.firebasedatabase.app`,
-        projectId: Config.projectId,
+        authDomain: `${Config.firebaseProjectId}.firebaseapp.com`,
+        databaseURL: Config.dbURL || `https://${Config.firebaseProjectId}-default-rtdb.asia-southeast1.firebasedatabase.app`,
+        projectId: Config.firebaseProjectId,
     };
 
     const app = initializeApp(firebaseConfig);
@@ -382,16 +380,18 @@ async function main() {
     let backendState = 'offline';
     let lastGpsData = null;
 
-    // ★ 新增：監聽後端傳來的設定檔
-    // 當後端 Controller.py 啟動時，會把 config.json 的內容推送到這裡
-    onValue(ref(db, `${Config.projectId}/settings/current_config`), (snapshot) => {
+    // ★ 關鍵：監聽 settings/current_config
+    // 這裡的路徑使用 Config.dbRootPath (即 project_name)
+    const settingsRef = ref(db, `${Config.dbRootPath}/settings/current_config`);
+    onValue(settingsRef, (snapshot) => {
         const configData = snapshot.val();
         if (configData) {
+            // 收到的資料會包含 project_name, gps_ip 等，更新到 UI
             uiManager.syncConfigFromBackend(configData);
         }
     });
 
-    onValue(ref(db, `${Config.dbPath}/status`), (snapshot) => {
+    onValue(ref(db, `${Config.dbRootPath}/status`), (snapshot) => {
         const data = snapshot.val();
         if (!data) return;
 
@@ -411,7 +411,7 @@ async function main() {
         }
     });
 
-    onValue(ref(db, `${Config.dbPath}/latest`), (snapshot) => {
+    onValue(ref(db, `${Config.dbRootPath}/latest`), (snapshot) => {
         const data = snapshot.val();
         if (data && data.lat) {
             lastGpsData = data;
@@ -424,7 +424,7 @@ async function main() {
         }
     });
 
-    onChildAdded(ref(db, `${Config.dbPath}/history`), (snapshot) => {
+    onChildAdded(ref(db, `${Config.dbRootPath}/history`), (snapshot) => {
         const data = snapshot.val();
         if (data) {
             mapManager.addHistoryPoint(data, uiManager.getColor.bind(uiManager));

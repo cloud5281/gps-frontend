@@ -59,7 +59,8 @@ class SystemController:
     def _push_current_config_to_firebase(self):
         try:
             data = {
-                "project_id": self.cfg.PROJECT_NAME,
+                "db_id": self.cfg.DB_ID,
+                "project_name": self.cfg.PROJECT_NAME,
                 "gps_ip": self.cfg.GPS_IP,
                 "gps_port": self.cfg.GPS_PORT,
                 "conc_unit": self.cfg.CONC_UNIT
@@ -82,8 +83,8 @@ class SystemController:
                 config_data = json.load(f)
 
             # 2. 更新數值
-            if 'project_id' in new_settings:
-                config_data['settings']['project_name'] = new_settings['project_id']
+            if 'project_name' in new_settings:
+                config_data['settings']['project_name'] = new_settings['project_name']
             if 'gps_ip' in new_settings:
                 config_data['gps']['ip'] = new_settings['gps_ip']
             if 'gps_port' in new_settings:
@@ -97,10 +98,8 @@ class SystemController:
             
             self.logger.info("✅ config.json 已更新！")
 
-            # 4. 如果專案名稱改了，必須重啟程式才能監聽新頻道
-            # 這裡我們先做簡單處理：更新記憶體內的 cfg
-            self.cfg = Config(self.config_file) 
             db.reference(f'{self.cfg.PROJECT_NAME}/control/config_update').delete()
+            self.cfg = Config(self.config_file) 
             # 再推一次新的設定上去確認
             self._push_current_config_to_firebase()
 
@@ -124,9 +123,7 @@ class SystemController:
     
     def start_process(self):
         """讀取 Config 並啟動 Process"""
-        if self.process is not None and self.process.running:
-            self.logger.warning("程式已經在執行中！")
-            return
+        if self.process is not None and self.process.running: return
         # self.logger.info("啟動系統...")
     
         # 讀取最新設定 (每次 Start 都重新讀取，方便參數更新)
@@ -143,9 +140,7 @@ class SystemController:
 
     def stop_process(self):
         """停止 Process"""
-        if self.process is None or not self.process.running:
-            self.logger.warning("系統尚未執行")
-            return
+        if self.process is None or not self.process.running: return
 
         self.logger.info("正在停止系統...")
         self.process.stop()
@@ -161,7 +156,12 @@ class SystemController:
 
     def run(self):
         """主程式進入無窮迴圈，持續監聽 Firebase"""
-        webbrowser.open(f'{self.cfg.MAP_URL}?id={self.cfg.DB_ID}&key={self.cfg.API_KEY}&path={self.cfg.PROJECT_NAME}')
+        url = (f"{self.cfg.MAP_URL}?"
+                f"id={self.cfg.DB_ID}&"
+                f"path={self.cfg.PROJECT_NAME}&"
+                f"key={self.cfg.API_KEY}"
+        )
+        webbrowser.open(url)
         cmd_ref = db.reference(f'{self.cfg.PROJECT_NAME}/control/command')
         
         # 第一次啟動先歸零指令，避免上次殘留的 start 導致意外啟動
