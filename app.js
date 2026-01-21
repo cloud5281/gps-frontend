@@ -416,11 +416,6 @@ async function main() {
         else if (data.state === 'stopped') displayText = '已停止';
         else if (data.state === 'offline') displayText = '後端離線 / 切換中'; // 對應 Controller 的修改
 
-        // 顯示 Message (如果有)
-        if (data.message) {
-            displayText += ` (${data.message})`;
-        }
-
         uiManager.updateStatusText(data.state, displayText);
         
         // 按鈕邏輯
