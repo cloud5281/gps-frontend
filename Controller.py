@@ -179,9 +179,8 @@ class SystemController:
             self.process_thread = threading.Thread(target=self.process.run)
             self.process_thread.start()
 
-            # ⚠️ 修正：統一寫入到根目錄 status
             db.reference(f'{self.cfg.PROJECT_NAME}/status').update({
-                'state': 'active',
+                'state': 'connecting',
                 'message': '系統啟動中...'
             })
             

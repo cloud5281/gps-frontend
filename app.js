@@ -29,7 +29,7 @@ const Config = (() => {
 })();
 
 /**
- * 2. 地圖管理器 (無變更)
+ * 2. 地圖管理器
  */
 class MapManager {
     constructor() {
@@ -211,18 +211,48 @@ class UIManager {
         this.els.btnDownload.addEventListener('click', () => alert("下載功能開發中..."));
     }
 
-    // 🔥 新增：鎖定/解鎖系統介面
+    // 🔥 修改：系統繁忙/切換時，隱藏按鈕並鎖定輸入
     setSystemBusy(isBusy, customText = null) {
-        const btns = [this.els.btnStart, this.els.btnUpload, this.els.btnDownload, this.els.btnOpenSettings];
+        // 1. 定義要隱藏的按鈕群組
+        const controlBtns = [
+            this.els.btnStart, 
+            this.els.btnUpload, 
+            this.els.btnDownload, 
+            this.els.btnOpenSettings
+        ];
         
+        // 2. 定義要鎖定的輸入框群組 (閾值設定)
+        const thresholdInputs = Object.values(this.els.inputs);
+
         if (isBusy) {
-            btns.forEach(btn => btn.disabled = true);
-            this.els.statusDot.className = "status-dot st-offline"; // 灰色燈
+            // --- 鎖定狀態 ---
+            
+            // 隱藏所有按鈕 (使用 invisible 保持版面，避免跳動)
+            controlBtns.forEach(btn => {
+                btn.disabled = true;
+                btn.classList.add('invisible'); 
+            });
+
+            // 鎖定閾值輸入
+            thresholdInputs.forEach(input => input.disabled = true);
+
+            this.els.statusDot.className = "status-dot st-offline";
             this.els.statusText.innerText = customText || "系統切換中...";
             this.els.statusText.style.color = "gray";
+
         } else {
-            btns.forEach(btn => btn.disabled = false);
-            // 恢復後狀態會由 updateStatusText 接手，這裡只需解鎖按鈕
+            // --- 解除鎖定狀態 ---
+
+            // 解鎖按鈕並恢復可見性
+            controlBtns.forEach(btn => {
+                btn.disabled = false;
+                btn.classList.remove('invisible'); 
+                // 注意：這裡只移除 invisible，具體的 hidden 邏輯 (如 Upload 按鈕) 
+                // 會緊接著由 updateStatusText -> setButtonState 來接手管理
+            });
+
+            // 解鎖閾值輸入
+            thresholdInputs.forEach(input => input.disabled = false);
         }
     }
 
@@ -246,29 +276,26 @@ class UIManager {
         btn.innerText = "傳送中...";
         btn.disabled = true;
 
-        // 🔥 1. 立即在前端顯示「切換中」並鎖定介面
+        // 🔥 立即在前端顯示「切換中」並進入鎖定模式
         this.els.modal.classList.add('hidden'); // 關閉視窗
         this.setSystemBusy(true, "正在重啟後端...");
 
         const updateRef = ref(this.db, `${Config.dbRootPath}/control/config_update`);
         
         set(updateRef, updateData).then(() => {
-            // 前端已送出，等待頁面重整或後端回應
-            // 如果專案名稱有變，瀏覽器會重整，這裡的 code 會隨頁面消失
             if (p !== Config.dbRootPath) {
                 const url = new URL(window.location);
                 url.searchParams.set('path', p);
                 window.history.pushState({}, '', url);
                 location.reload(); 
             } else {
-                // 如果專案名稱沒變，只是改參數
-                // 保持鎖定，直到 Firebase 的 status 變回 'stopped'/'active' (由 main.js 的監聽器解鎖)
+                // 如果專案名稱沒變，等待 Firebase status 更新解除鎖定
             }
         }).catch((err) => {
             alert("更新失敗: " + err);
             btn.disabled = false;
             btn.innerText = originalText;
-            this.setSystemBusy(false); // 解鎖
+            this.setSystemBusy(false); // 失敗則解除鎖定
         });
     }
 
@@ -283,6 +310,7 @@ class UIManager {
         if (isRunning) {
             this.els.btnStart.innerText = "停止";
             this.els.btnStart.classList.add('btn-stop');
+            // 這裡使用 hidden 或 invisible 都可以，保持原邏輯
             this.els.btnUpload.classList.add('hidden');
             this.els.btnDownload.classList.add('hidden');
             this.els.btnOpenSettings.classList.add('invisible');
@@ -299,14 +327,8 @@ class UIManager {
         setInterval(() => this.els.time.innerText = new Date().toLocaleTimeString('zh-TW', { hour12: false }), 1000);
     }
 
-    // 🔥 修改：只顯示狀態文字，移除括號內的 message
     updateStatusText(state, displayText) {
         this.els.statusDot.className = `status-dot st-${state}`;
-        
-        // 移除括號細節，只保留主要狀態
-        // 原本邏輯會在這裡把 message 加進去，現在 UIManager 外部傳進來時已經處理過了
-        // 或者我們在這裡強制過濾
-        
         this.els.statusText.innerText = displayText;
         
         const colorMap = { 'active': '#28a745', 'connecting': '#d39e00', 'offline': 'gray', 'timeout': '#dc3545', 'stopped': 'gray' };
@@ -411,34 +433,25 @@ async function main() {
     onValue(ref(db, `${Config.dbRootPath}/status`), (snapshot) => {
         const data = snapshot.val();
         
-        // 🔥 邏輯修改：
-        // 1. 如果 data 不存在 (null) -> 代表專案剛建立，後端還沒寫入
-        // 2. 如果 state 是 'offline' -> 代表正在切換專案
-        // 這兩種情況下，都屬於「系統繁忙」，強制鎖定
-        
+        // 🔥 當專案初始化中、切換中或無資料時，進入「全鎖定模式」
         if (!data || data.state === 'offline') {
             uiManager.setSystemBusy(true, "系統切換中...");
             uiManager.updateRealtimeData({}, false);
-            return; // ⛔ 中斷執行，不更新按鈕狀態
+            return; 
         }
 
-        // ✅ 收到有效狀態 (stopped, active, connecting...) -> 解除鎖定
+        // ✅ 狀態正常：解除鎖定，並根據狀態顯示按鈕
         uiManager.setSystemBusy(false);
         backendState = data.state;
         
         let displayText = '未連線';
         if (data.state === 'active') displayText = '連線正常';
         else if (data.state === 'connecting') displayText = '連線中...';
-        else if (data.state === 'timeout') displayText = '連線逾時'; // 移除 "(已停止)"
+        else if (data.state === 'timeout') displayText = '連線逾時';
         else if (data.state === 'stopped') displayText = '已停止';
         
-        // 🔥 修改：不再附加 data.message 到畫面上
-        // 原本: if (data.message) displayText += ` (${data.message})`; 
-        // 現在: 保持乾淨的 displayText
-
         uiManager.updateStatusText(data.state, displayText);
         
-        // 按鈕切換邏輯
         if (data.state === 'active' || data.state === 'connecting') {
             uiManager.setButtonState(true); 
         } else {
