@@ -74,8 +74,14 @@ class FirebaseManager:
                             'message': '正在接收 GPS 數據...'
                         })
                     if data is None: 
-                        exit_state = 'timeout'
-                        exit_msg = '程式已停止運作 (GPS連線中斷)'
+                        if self.running:
+                            # 情況 A: 程式還在跑，卻收到 None -> 異常斷線 (Timeout)
+                            exit_state = 'timeout'
+                            exit_msg = '程式已停止運作 (GPS連線中斷)'
+                        else:
+                            # 情況 B: stop() 被呼叫過，收到 None -> 正常關閉
+                            exit_state = 'offline'
+                            exit_msg = '系統已手動關閉'
                         break
 
                     ref_history.push(data)
@@ -93,12 +99,6 @@ class FirebaseManager:
                             'message': '等待 GPS 訊號...'
                         })
                     continue
-
-        except KeyboardInterrupt:
-            # ✨ 如果是手動按 Ctrl+C，這裡會被捕捉
-            exit_state = 'offline'
-            exit_msg = '程式已停止運作 (手動終止)'
-            logger.info("👋 偵測到中斷指令...")
 
         except Exception as e:
             exit_state = 'error'

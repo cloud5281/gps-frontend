@@ -294,8 +294,21 @@ class UIManager {
         
         set(updateRef, updateData).then(() => {
             if (updateData.project_name && updateData.project_name !== Config.dbRootPath) {
-                const url = new URL(window.location);
+                const url = new URL(window.location.href); // 確保建立完整的 URL 物件
+                
+                // 修正：因為網址已被清空，必須從 Config 把必要的 ID 補回去
+                url.searchParams.set('id', Config.firebaseProjectId);
+                
+                // 建議：如果您的 API Key 也是透過網址傳入的，建議也補回去，以免失效
+                // (如果您都使用預設 Key 則此行可省略，但加上去比較保險)
+                if (Config.apiKey) {
+                    url.searchParams.set('key', Config.apiKey);
+                }
+
+                // 設定新的專案路徑
                 url.searchParams.set('path', updateData.project_name);
+                
+                // 更新網址並重整
                 window.history.pushState({}, '', url);
                 location.reload(); 
             }
