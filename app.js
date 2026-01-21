@@ -446,7 +446,7 @@ async function main() {
                          localStorage.removeItem('is_switching');
                          uiManager.setSystemBusy(true, "未連接 Controller (回應逾時)", true);
                      }
-                 }, 10000);
+                 }, 60000);
              } else {
                  uiManager.setSystemBusy(true, "未連接 Controller", true);
              }
