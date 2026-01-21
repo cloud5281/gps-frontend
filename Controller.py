@@ -111,6 +111,9 @@ class SystemController:
                     'state': 'offline',
                     'message': f'後端已切換至: {new_project_name}'
                 })
+            else:
+                # 即使專案名沒變，如果是在改參數，也建議先給個 Offline 狀態讓前端鎖定
+                db.reference(f'{old_project_name}/status').update({'state': 'offline'})
 
             with open(self.config_file, 'r', encoding='utf-8') as f:
                 config_data = json.load(f)
@@ -133,15 +136,16 @@ class SystemController:
             self.cfg = Config(self.config_file)
 
             if old_project_name != new_project_name:
-                self.logger.info(f"🔄 專案變更，重啟監聽...")
+                self.logger.info(f"🔄 專案變更，正在重啟監聽器...")
                 if self.process and self.process.running:
                     self.stop_process()
-                db.reference(f'{new_project_name}/status').set({
-                    'state': 'stopped',
-                    'message': '後端已就緒 (等待指令)'
-                })
                 self._setup_listeners()
-            
+
+            time.sleep(0.5) # 稍微緩衝，確保前端重整完成
+            db.reference(f'{new_project_name}/status').set({
+                'state': 'stopped',
+                'message': '就緒'
+            }) 
             self._push_current_config_to_firebase()
 
         except Exception as e:
