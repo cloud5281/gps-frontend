@@ -16,7 +16,7 @@ class GPSReader:
         self.port = None
         self.gps_queue = None
         # 內部
-        self.timeout_limit = 10 
+        self.timeout_limit = 30 
 
         self.socket = None   
         self.file_obj = None 

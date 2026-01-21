@@ -105,7 +105,7 @@ class UIManager {
 
     initDOM() {
         this.els = {
-            // 🔥 新增：抓取底部的白色控制列 (請記得在 HTML 加入 id="bottom-control-bar")
+            // 🔥 請確認您的 HTML 中，包住三個按鈕的那個白色 div 有加上 id="bottom-control-bar"
             controlBar: document.getElementById('bottom-control-bar'),
             
             time: document.getElementById('time'),
@@ -162,10 +162,6 @@ class UIManager {
     }
 
     fillSettingsInputs() {
-        // 設定目前的 placeholder 或 value，讓使用者知道當前數值
-        // 但為了方便「部分修改」，我們這裡可以只設定 placeholder 顯示當前值，value 留空
-        // 或是直接填入 value (使用者得刪除才能留空)。
-        // 這裡維持填入 value，方便使用者修改。
         this.els.backendInputs.project.value = Config.dbRootPath;
         this.els.backendInputs.ip.value = Config.gpsIp;
         this.els.backendInputs.port.value = Config.gpsPort;
@@ -218,18 +214,16 @@ class UIManager {
         this.els.btnDownload.addEventListener('click', () => alert("下載功能開發中..."));
     }
 
-    // 🔥 修改：系統忙碌時，隱藏整個下方控制列
+    // 🔥 修改：使用 display: none 徹底隱藏白色框
     setSystemBusy(isBusy, customText = null) {
         const thresholdInputs = Object.values(this.els.inputs);
 
         if (isBusy) {
-            // 1. 隱藏下方白色控制列 (如果 HTML 有正確加上 ID)
+            // 1. 隱藏下方白色控制列
             if (this.els.controlBar) {
-                // 使用 invisible 會保留空間但看不見，使用 hidden (display: none) 會連空間都不見
-                // 建議使用 hidden (如果您的 css 有 .hidden {display:none})
-                this.els.controlBar.classList.add('hidden'); 
+                this.els.controlBar.style.display = 'none'; // 強制隱藏
             } else {
-                // 如果找不到容器，則 fallback 到隱藏按鈕
+                // 如果沒抓到 ID，才隱藏按鈕 (備案)
                 [this.els.btnStart, this.els.btnUpload, this.els.btnDownload, this.els.btnOpenSettings].forEach(btn => btn.classList.add('invisible'));
             }
 
@@ -244,7 +238,8 @@ class UIManager {
         } else {
             // 解除鎖定
             if (this.els.controlBar) {
-                this.els.controlBar.classList.remove('hidden');
+                // 清空 inline style，讓原本的 CSS (flex 或 block) 生效
+                this.els.controlBar.style.display = ''; 
             } else {
                 [this.els.btnStart, this.els.btnUpload, this.els.btnDownload, this.els.btnOpenSettings].forEach(btn => btn.classList.remove('invisible'));
             }
@@ -253,23 +248,18 @@ class UIManager {
         }
     }
 
-    // 🔥 修改：只傳送有填寫的欄位
     saveBackendSettings() {
         const p = this.els.backendInputs.project.value.trim();
         const i = this.els.backendInputs.ip.value.trim();
         const pt = this.els.backendInputs.port.value.trim();
         const u = this.els.backendInputs.unit.value.trim();
 
-        // 1. 建立空物件，動態塞入值
         const updateData = {};
-        
-        // 只有當使用者真的輸入東西時，才加入物件
         if (p) updateData.project_name = p;
         if (i) updateData.gps_ip = i;
         if (pt) updateData.gps_port = pt;
         if (u) updateData.conc_unit = u;
 
-        // 2. 檢查是否完全沒輸入
         if (Object.keys(updateData).length === 0) {
             alert("⚠️ 未輸入任何變更參數，操作已取消");
             return;
@@ -280,21 +270,17 @@ class UIManager {
         btn.innerText = "傳送中...";
         btn.disabled = true;
 
-        // 立即鎖定介面
         this.els.modal.classList.add('hidden');
         this.setSystemBusy(true, "正在更新設定...");
 
         const updateRef = ref(this.db, `${Config.dbRootPath}/control/config_update`);
         
         set(updateRef, updateData).then(() => {
-            // 如果專案名稱有變，後端會觸發離線，瀏覽器會重整
             if (updateData.project_name && updateData.project_name !== Config.dbRootPath) {
                 const url = new URL(window.location);
                 url.searchParams.set('path', updateData.project_name);
                 window.history.pushState({}, '', url);
                 location.reload(); 
-            } else {
-                // 如果只是改 IP/Port，不會重整，等 Firebase 狀態變回 active/stopped 就會自動解鎖
             }
         }).catch((err) => {
             alert("更新失敗: " + err);
@@ -437,13 +423,26 @@ async function main() {
     onValue(ref(db, `${Config.dbRootPath}/status`), (snapshot) => {
         const data = snapshot.val();
         
-        // 當系統離線或無資料時，進入忙碌模式
-        if (!data || data.state === 'offline') {
-            uiManager.setSystemBusy(true, "系統切換中...");
-            uiManager.updateRealtimeData({}, false);
-            return; 
+        // 🔥 邏輯修改：
+        // 1. 如果完全沒資料 (data == null) -> 未連接 Controller
+        if (!data) {
+             uiManager.setSystemBusy(true, "未連接 Controller");
+             uiManager.updateRealtimeData({}, false);
+             return;
         }
 
+        // 2. 如果狀態是 offline，進一步區分是「切換中」還是「已關閉」
+        if (data.state === 'offline') {
+             // 檢查 message 是否包含 "切換" (Controller.py 寫入的訊息)
+             const isSwitching = data.message && data.message.includes("切換");
+             const statusText = isSwitching ? "系統切換中..." : "未連接 Controller";
+             
+             uiManager.setSystemBusy(true, statusText);
+             uiManager.updateRealtimeData({}, false);
+             return;
+        }
+
+        // 3. 正常狀態：解除鎖定 (恢復按鈕顯示)
         uiManager.setSystemBusy(false);
         backendState = data.state;
         
