@@ -307,7 +307,7 @@ class UIManager {
 
                 // 設定新的專案路徑
                 url.searchParams.set('path', updateData.project_name);
-                
+                sessionStorage.setItem('is_switching', 'true');
                 // 更新網址並重整
                 window.history.pushState({}, '', url);
                 location.reload(); 
@@ -456,22 +456,25 @@ async function main() {
         
         // 1. 完全沒資料 (data == null) -> 情境一：未連接 Controller
         if (!data) {
-             // True=Busy(隱藏按鈕), "未連接", True=AllowThresholds(允許調整閾值)
-             uiManager.setSystemBusy(true, "未連接 Controller", true);
-             uiManager.updateRealtimeData({}, false);
-             return;
-        }
+             // 檢查是否剛切換過專案 (讀取 sessionStorage)
+             const isSwitching = sessionStorage.getItem('is_switching');
 
-        // 2. 狀態是 offline
-        if (data.state === 'offline') {
-             // 檢查是否為專案切換中
-             const isSwitching = data.message && data.message.includes("切換");
-             
              if (isSwitching) {
-                 // 情境二：切換中 -> Busy=True, 文字=切換中, AllowThresholds=False (鎖死)
-                 uiManager.setSystemBusy(true, "系統切換中...", false);
+                 // 情境 A：剛切換完專案，後端還沒寫入狀態 -> 顯示「切換中」，鎖定介面
+                 // 設定：Busy=True, 文字=建立連線中..., AllowThresholds=False (鎖定)
+                 uiManager.setSystemBusy(true, "建立連線中... (新專案)", false);
+                 
+                 // 設定一個 10 秒保險機制：如果 10 秒後後端還沒上線，就視為斷線並允許操作
+                 setTimeout(() => {
+                    if (sessionStorage.getItem('is_switching')) {
+                        sessionStorage.removeItem('is_switching');
+                        // 這裡不強制刷新 UI，等待下一次 Firebase 回調或用戶手動重整
+                    }
+                 }, 10000);
+
              } else {
-                 // 情境一：單純斷線 -> Busy=True, 文字=未連接, AllowThresholds=True (允許調整閾值)
+                 // 情境 B：單純打開網頁，後端沒開 -> 顯示「未連接」，允許調整閾值
+                 // 設定：Busy=True, 文字=未連接 Controller, AllowThresholds=True (允許)
                  uiManager.setSystemBusy(true, "未連接 Controller", true);
              }
              
@@ -479,19 +482,38 @@ async function main() {
              return;
         }
 
-        // 3. 正常連線狀態：解除鎖定 (恢復按鈕顯示，閾值可調)
+        // --- 2. 收到資料，代表連線成功 ---
+        
+        // 🔥 關鍵：一旦收到資料，代表後端已經連上，立刻清除切換標記
+        sessionStorage.removeItem('is_switching');
+
+        // (原本的狀態判斷邏輯)
+        if (data.state === 'offline') {
+             const isServerSwitching = data.message && data.message.includes("切換");
+             
+             if (isServerSwitching) {
+                 uiManager.setSystemBusy(true, "系統切換中...", false);
+             } else {
+                 uiManager.setSystemBusy(true, "未連接 Controller", true);
+             }
+             uiManager.updateRealtimeData({}, false);
+             return;
+        }
+
+        // 3. 正常運作狀態 (active, stopped, connecting...)
         uiManager.setSystemBusy(false);
         backendState = data.state;
         
+        // ... (後面的顯示邏輯保持不變) ...
         let displayText = '未連線';
         if (data.state === 'active') displayText = '連線正常';
         else if (data.state === 'connecting') displayText = '連線中...';
         else if (data.state === 'timeout') displayText = '連線逾時';
         else if (data.state === 'stopped') displayText = '已停止';
+        // ...
         
         uiManager.updateStatusText(data.state, displayText);
         
-        // 根據狀態設定按鈕樣式 (Start/Stop)
         if (data.state === 'active' || data.state === 'connecting') {
             uiManager.setButtonState(true); 
         } else {
