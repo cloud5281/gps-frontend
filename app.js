@@ -397,27 +397,40 @@ async function main() {
 
     onValue(ref(db, `${Config.dbRootPath}/status`), (snapshot) => {
         const data = snapshot.val();
-        if (!data) return;
+        
+        // 🛡️ 防呆：如果網址切換到一個全新的、資料庫沒資料的專案
+        // 預設給它顯示 Offline，避免畫面空白
+        if (!data) {
+            uiManager.updateStatusText('offline', '無訊號 (專案未初始化)');
+            uiManager.setButtonState(false);
+            uiManager.updateRealtimeData({}, false);
+            return;
+        }
 
         backendState = data.state;
         let displayText = '未連線';
+        
         if (data.state === 'active') displayText = '連線正常';
         else if (data.state === 'connecting') displayText = '連線中...';
         else if (data.state === 'timeout') displayText = '連線逾時(已停止)';
         else if (data.state === 'stopped') displayText = '已停止';
+        else if (data.state === 'offline') displayText = '後端離線 / 切換中'; // 對應 Controller 的修改
+
+        // 顯示 Message (如果有)
+        if (data.message) {
+            displayText += ` (${data.message})`;
+        }
 
         uiManager.updateStatusText(data.state, displayText);
         
-        // ★ 核心修改：判斷何時該把按鈕保持在「停止(錄製中)」狀態
-        // 1. active: 正常錄製 -> 按鈕顯示「停止」
-        // 2. connecting: 正在嘗試重連(GPS短暫中斷) -> 為了避免畫面跳掉，按鈕仍顯示「停止」
-        // 3. stopped / timeout / offline -> 真的停了 -> 按鈕顯示「開始」
+        // 按鈕邏輯
         if (data.state === 'active' || data.state === 'connecting') {
-            uiManager.setButtonState(true); // isRunning = true
+            uiManager.setButtonState(true); 
         } else {
-            uiManager.setButtonState(false); // isRunning = false
+            uiManager.setButtonState(false); 
         }
         
+        // 數據顯示邏輯
         if (data.state === 'active' && lastGpsData) {
             uiManager.updateRealtimeData(lastGpsData, true);
         } else {
@@ -427,6 +440,7 @@ async function main() {
 
     onValue(ref(db, `${Config.dbRootPath}/latest`), (snapshot) => {
         const data = snapshot.val();
+        
         if (data && data.lat) {
             lastGpsData = data;
             const isAuto = document.getElementById('autoCenter').checked;

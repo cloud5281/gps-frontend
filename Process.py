@@ -50,6 +50,8 @@ class RunProcess:
                 try:
                     gps_data = self.gps.gps_queue.get(timeout=0.2)
                     if gps_data is None:
+                        if self.running:
+                            self.fb.data_queue.put(None)
                         break
                     gps_data['_arrival_time'] = time.time()
                     gps_buffer.append(gps_data) # 先放進緩衝區，不急著處理
@@ -114,6 +116,9 @@ class RunProcess:
                 logger.error(f"合併錯誤: {e}")
                 pass
 
+        if self.running:
+            self.fb.data_queue.put(None)
+
     def stop(self):
         """停止所有子程序"""
         self.running = False
@@ -138,4 +143,8 @@ class RunProcess:
         merger_thread = threading.Thread(target=self._queue_merger, daemon=True)
         merger_thread.start()
 
-        self.fb.run()   
+        try:
+            self.fb.run() # 這裡會卡住直到停止訊號出現
+        finally:
+            self.stop()   
+            self.running = False 
