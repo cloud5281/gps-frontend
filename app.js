@@ -215,50 +215,21 @@ class UIManager {
         this.els.btnDownload.addEventListener('click', () => alert("下載功能開發中..."));
     }
 
-    /**
-     * 🔥 修改核心：控制系統繁忙/離線狀態
-     * @param {boolean} isBusy - 是否處於離線或繁忙狀態
-     * @param {string} customText - 狀態列顯示文字
-     * @param {boolean} allowThresholds - 是否允許調整濃度閾值 (即使在 isBusy 狀態下)
-     */
     setSystemBusy(isBusy, customText = null, allowThresholds = false) {
         const thresholdInputs = Object.values(this.els.inputs);
 
         if (isBusy) {
-            // 1. 隱藏下方白色控制列 (開始/上傳/下載)
-            if (this.els.controlBar) {
-                this.els.controlBar.style.display = 'none'; 
-            }
-
-            // 2. 隱藏「系統參數」按鈕 (依據需求，兩個情境都要隱藏)
-            if (this.els.btnOpenSettings) {
-                this.els.btnOpenSettings.style.display = 'none';
-            }
-
-            // 3. 控制閾值輸入框是否鎖定
-            // 如果 allowThresholds 為 true，則不鎖定 (disabled = false)
-            // 如果 allowThresholds 為 false，則鎖定 (disabled = true)
+            if (this.els.controlBar) this.els.controlBar.style.display = 'none'; 
+            if (this.els.btnOpenSettings) this.els.btnOpenSettings.style.display = 'none';
             thresholdInputs.forEach(input => input.disabled = !allowThresholds);
 
-            // 4. 更新狀態顯示
             this.els.statusDot.className = "status-dot st-offline";
             this.els.statusText.innerText = customText || "系統離線";
             this.els.statusText.style.color = "gray";
 
         } else {
-            // 系統正常運作：解除所有限制
-            
-            // 恢復白框
-            if (this.els.controlBar) {
-                this.els.controlBar.style.display = ''; 
-            }
-
-            // 恢復「系統參數」按鈕
-            if (this.els.btnOpenSettings) {
-                this.els.btnOpenSettings.style.display = ''; 
-            }
-
-            // 解除輸入鎖定
+            if (this.els.controlBar) this.els.controlBar.style.display = ''; 
+            if (this.els.btnOpenSettings) this.els.btnOpenSettings.style.display = ''; 
             thresholdInputs.forEach(input => input.disabled = false);
         }
     }
@@ -294,7 +265,7 @@ class UIManager {
                 if (Config.apiKey) url.searchParams.set('key', Config.apiKey);
                 url.searchParams.set('path', updateData.project_name);
                 
-                // 🔥 改用 localStorage (比 sessionStorage 更穩)
+                // 設定 localStorage 標記
                 localStorage.setItem('is_switching', 'true');
                 
                 window.history.pushState({}, '', url);
@@ -433,20 +404,17 @@ async function main() {
 
     onValue(ref(db, `${Config.dbRootPath}/status`), (snapshot) => {
         const data = snapshot.val();
+        const isSwitchingLocal = localStorage.getItem('is_switching');
         
         // --- 1. 資料為空 (新專案 或 Controller未開啟) ---
         if (!data) {
-             // 🔥 改讀 localStorage (只要有值就視為 true)
-             if (localStorage.getItem('is_switching')) {
+             // 🔥 如果本機還在切換模式，保持「切換中」，不要顯示「未連接」
+             if (isSwitchingLocal) {
                  uiManager.setSystemBusy(true, "系統切換中...", false);
                  
-                 // 10秒逾時檢查
-                 setTimeout(() => {
-                     if (localStorage.getItem('is_switching')) {
-                         localStorage.removeItem('is_switching');
-                         uiManager.setSystemBusy(true, "未連接 Controller (回應逾時)", true);
-                     }
-                 }, 60000);
+                 // 超時檢查：如果過了60秒還在切換中，才顯示逾時
+                 // (這裡簡單做，不重複設置 timer，僅依賴下一次更新)
+                 return; 
              } else {
                  uiManager.setSystemBusy(true, "未連接 Controller", true);
              }
@@ -454,15 +422,18 @@ async function main() {
              return;
         }
 
-        // --- 2. 有收到資料 -> 清除標記 ---
-        localStorage.removeItem('is_switching');
+        // --- 2. 有資料，檢查是否可以解除切換模式 ---
+        // 只有當狀態進入「穩定」的連接狀態時，才移除 is_switching
+        // 如果狀態還是 offline (可能後端剛初始化寫入 offline)，則繼續保持切換顯示
+        if (data.state === 'active' || data.state === 'stopped' || data.state === 'connecting') {
+             localStorage.removeItem('is_switching');
+        }
 
         // --- 3. 狀態處理 ---
         if (data.state === 'offline') {
-             // 檢查後端訊息是否包含「切換」或「更新」
-             const isSwitching = data.message && (data.message.includes("切換") || data.message.includes("更新"));
+             const isSwitchingMsg = data.message && (data.message.includes("切換") || data.message.includes("更新") || data.message.includes("初始化"));
              
-             if (isSwitching) {
+             if (isSwitchingMsg || isSwitchingLocal) {
                  uiManager.setSystemBusy(true, "系統切換中...", false);
              } else {
                  uiManager.setSystemBusy(true, "未連接 Controller", true);
