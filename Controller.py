@@ -105,6 +105,7 @@ class SystemController:
         new_project_name = new_settings.get('project_name', old_project_name)
 
         try:
+            # 🔥 修正重點：無論專案名是否變更，都要送出明確的「更新中」訊息
             if old_project_name != new_project_name:
                 self.logger.info(f"👋 正在將舊專案 ({old_project_name}) 標記為離線...")
                 db.reference(f'{old_project_name}/status').set({
@@ -112,8 +113,11 @@ class SystemController:
                     'message': f'後端已切換至: {new_project_name}'
                 })
             else:
-                # 即使專案名沒變，如果是在改參數，也建議先給個 Offline 狀態讓前端鎖定
-                db.reference(f'{old_project_name}/status').update({'state': 'offline'})
+                # 即使專案名沒變，也要設為 Offline，並加上「更新」字樣讓前端識別
+                db.reference(f'{old_project_name}/status').update({
+                    'state': 'offline',
+                    'message': '系統設定更新中...'
+                })
 
             with open(self.config_file, 'r', encoding='utf-8') as f:
                 config_data = json.load(f)
@@ -135,17 +139,28 @@ class SystemController:
 
             self.cfg = Config(self.config_file)
 
+            # 重新啟動監聽器
             if old_project_name != new_project_name:
                 self.logger.info(f"🔄 專案變更，正在重啟監聽器...")
                 if self.process and self.process.running:
                     self.stop_process()
                 self._setup_listeners()
+            else:
+                # 如果專案沒變但 IP 變了，也需要重啟 Process (如果正在跑)
+                if self.process and self.process.running:
+                    self.logger.info("🔄 偵測到參數變更，重啟子程序...")
+                    self.stop_process()
+                    self.start_process()
 
-            time.sleep(0.5) # 稍微緩衝，確保前端重整完成
-            db.reference(f'{new_project_name}/status').set({
-                'state': 'stopped',
-                'message': '就緒'
-            }) 
+            time.sleep(1.0) # 稍微加長緩衝時間
+            
+            # 只有當 Process 沒在跑的時候才設為 stopped (避免覆蓋 active/connecting)
+            if not (self.process and self.process.running):
+                db.reference(f'{new_project_name}/status').set({
+                    'state': 'stopped',
+                    'message': '就緒'
+                }) 
+            
             self._push_current_config_to_firebase()
 
         except Exception as e:

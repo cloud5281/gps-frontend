@@ -268,47 +268,35 @@ class UIManager {
         const i = this.els.backendInputs.ip.value.trim();
         const pt = this.els.backendInputs.port.value.trim();
         const u = this.els.backendInputs.unit.value.trim();
-
         const updateData = {};
         if (p) updateData.project_name = p;
         if (i) updateData.gps_ip = i;
         if (pt) updateData.gps_port = pt;
         if (u) updateData.conc_unit = u;
 
-        if (Object.keys(updateData).length === 0) {
-            alert("⚠️ 未輸入任何變更參數，操作已取消");
-            return;
-        }
+        if (Object.keys(updateData).length === 0) { alert("⚠️ 未輸入任何變更參數"); return; }
 
         const btn = this.els.btnSaveBackend;
         const originalText = btn.innerText;
         btn.innerText = "傳送中...";
         btn.disabled = true;
-
         this.els.modal.classList.add('hidden');
         
-        // 按下儲存後，進入「切換中」狀態，鎖定一切 (包含閾值)
+        // 立即顯示切換中
         this.setSystemBusy(true, "正在更新設定...", false);
 
         const updateRef = ref(this.db, `${Config.dbRootPath}/control/config_update`);
         
         set(updateRef, updateData).then(() => {
             if (updateData.project_name && updateData.project_name !== Config.dbRootPath) {
-                const url = new URL(window.location.href); // 確保建立完整的 URL 物件
-                
-                // 修正：因為網址已被清空，必須從 Config 把必要的 ID 補回去
+                const url = new URL(window.location.href);
                 url.searchParams.set('id', Config.firebaseProjectId);
-                
-                // 建議：如果您的 API Key 也是透過網址傳入的，建議也補回去，以免失效
-                // (如果您都使用預設 Key 則此行可省略，但加上去比較保險)
-                if (Config.apiKey) {
-                    url.searchParams.set('key', Config.apiKey);
-                }
-
-                // 設定新的專案路徑
+                if (Config.apiKey) url.searchParams.set('key', Config.apiKey);
                 url.searchParams.set('path', updateData.project_name);
-                sessionStorage.setItem('is_switching', 'true');
-                // 更新網址並重整
+                
+                // 🔥 改用 localStorage (比 sessionStorage 更穩)
+                localStorage.setItem('is_switching', 'true');
+                
                 window.history.pushState({}, '', url);
                 location.reload(); 
             }
@@ -316,7 +304,6 @@ class UIManager {
             alert("更新失敗: " + err);
             btn.disabled = false;
             btn.innerText = originalText;
-            // 失敗恢復為未連接狀態 (允許閾值調整)
             this.setSystemBusy(true, "更新失敗", true);
         });
     }
@@ -433,58 +420,47 @@ async function main() {
         databaseURL: Config.dbURL || `https://${Config.firebaseProjectId}-default-rtdb.asia-southeast1.firebasedatabase.app`,
         projectId: Config.firebaseProjectId,
     };
-
     const app = initializeApp(firebaseConfig);
     const db = getDatabase(app);
-
     const mapManager = new MapManager();
     const uiManager = new UIManager(mapManager, db);
-
     let backendState = 'offline';
     let lastGpsData = null;
 
-    const settingsRef = ref(db, `${Config.dbRootPath}/settings/current_config`);
-    onValue(settingsRef, (snapshot) => {
-        const configData = snapshot.val();
-        if (configData) {
-            uiManager.syncConfigFromBackend(configData);
-        }
+    onValue(ref(db, `${Config.dbRootPath}/settings/current_config`), (snapshot) => {
+        if (snapshot.val()) uiManager.syncConfigFromBackend(snapshot.val());
     });
 
     onValue(ref(db, `${Config.dbRootPath}/status`), (snapshot) => {
         const data = snapshot.val();
         
-        // 1. 資料為空 (新專案 或 Controller未開啟)
+        // --- 1. 資料為空 (新專案 或 Controller未開啟) ---
         if (!data) {
-             // 檢查是否有「切換中」的標記
-             if (sessionStorage.getItem('is_switching') === 'true') {
-                 // 情境：剛切換到新專案，Controller 還沒建立資料 -> 鎖定並顯示切換中
+             // 🔥 改讀 localStorage (只要有值就視為 true)
+             if (localStorage.getItem('is_switching')) {
                  uiManager.setSystemBusy(true, "系統切換中...", false);
-
-                 // (選用) 安全機制：如果過了 10 秒後端還是沒反應，自動解鎖避免卡死
+                 
+                 // 10秒逾時檢查
                  setTimeout(() => {
-                     if (sessionStorage.getItem('is_switching')) {
-                         sessionStorage.removeItem('is_switching');
-                         // 強制更新 UI 為未連接狀態
+                     if (localStorage.getItem('is_switching')) {
+                         localStorage.removeItem('is_switching');
                          uiManager.setSystemBusy(true, "未連接 Controller (回應逾時)", true);
                      }
                  }, 10000);
-
              } else {
-                 // 情境：單純打開網頁，且沒資料 -> 未連接，允許調整
                  uiManager.setSystemBusy(true, "未連接 Controller", true);
              }
-             
              uiManager.updateRealtimeData({}, false);
              return;
         }
 
-        // 2. 只要讀得到資料，代表連線成功或已有紀錄，清除切換標記
-        sessionStorage.removeItem('is_switching');
+        // --- 2. 有收到資料 -> 清除標記 ---
+        localStorage.removeItem('is_switching');
 
-        // 3. 原有的狀態判斷邏輯
+        // --- 3. 狀態處理 ---
         if (data.state === 'offline') {
-             const isSwitching = data.message && data.message.includes("切換");
+             // 檢查後端訊息是否包含「切換」或「更新」
+             const isSwitching = data.message && (data.message.includes("切換") || data.message.includes("更新"));
              
              if (isSwitching) {
                  uiManager.setSystemBusy(true, "系統切換中...", false);
@@ -495,7 +471,6 @@ async function main() {
              return;
         }
 
-        // 4. 正常運作狀態 (active, connecting, stopped...)
         uiManager.setSystemBusy(false);
         backendState = data.state;
         
@@ -506,38 +481,22 @@ async function main() {
         else if (data.state === 'stopped') displayText = '已停止';
         
         uiManager.updateStatusText(data.state, displayText);
+        uiManager.setButtonState(data.state === 'active' || data.state === 'connecting');
         
-        if (data.state === 'active' || data.state === 'connecting') {
-            uiManager.setButtonState(true); 
-        } else {
-            uiManager.setButtonState(false); 
-        }
-        
-        if (data.state === 'active' && lastGpsData) {
-            uiManager.updateRealtimeData(lastGpsData, true);
-        } else {
-            uiManager.updateRealtimeData({}, false);
-        }
+        if (data.state === 'active' && lastGpsData) uiManager.updateRealtimeData(lastGpsData, true);
+        else uiManager.updateRealtimeData({}, false);
     });
 
     onValue(ref(db, `${Config.dbRootPath}/latest`), (snapshot) => {
         const data = snapshot.val();
         if (data && data.lat) {
             lastGpsData = data;
-            const isAuto = document.getElementById('autoCenter').checked;
-            mapManager.updateCurrentPosition(data.lat, data.lon, isAuto);
-
-            if (backendState === 'active') {
-                uiManager.updateRealtimeData(data, true);
-            }
+            mapManager.updateCurrentPosition(data.lat, data.lon, document.getElementById('autoCenter').checked);
+            if (backendState === 'active') uiManager.updateRealtimeData(data, true);
         }
     });
-
     onChildAdded(ref(db, `${Config.dbRootPath}/history`), (snapshot) => {
-        const data = snapshot.val();
-        if (data) {
-            mapManager.addHistoryPoint(data, uiManager.getColor.bind(uiManager));
-        }
+        if (snapshot.val()) mapManager.addHistoryPoint(snapshot.val(), uiManager.getColor.bind(uiManager));
     });
 }
 
