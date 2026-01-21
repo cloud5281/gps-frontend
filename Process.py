@@ -124,13 +124,10 @@ class RunProcess:
         self.running = False
         
         # 1. 停止 Reader
-        self.gps.running = False
-        self.conc.running = False
+        self.gps.stop()
+        self.conc.stop()    
         # 2. 停止 Firebase 
         self.fb.stop()
-        # 3. 釋放資源
-        self.gps._cleanup()
-        self.conc._cleanup()
    
     def run(self):
         self.running = True

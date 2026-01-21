@@ -4,7 +4,7 @@ import time
 import firebase_admin
 import webbrowser
 import json
-import sys
+import os
 
 from firebase_admin import credentials, db
 from Config import Config
@@ -176,7 +176,7 @@ class SystemController:
         try:
             current_cfg = Config(self.config_file)
             self.process = RunProcess(current_cfg)
-            self.process_thread = threading.Thread(target=self.process.run)
+            self.process_thread = threading.Thread(target=self.process.run, daemon=True)
             self.process_thread.start()
 
             db.reference(f'{self.cfg.PROJECT_NAME}/status').update({
@@ -192,13 +192,13 @@ class SystemController:
             })
 
     def stop_process(self):
-        if self.process is None or not self.process.running:
+        if self.process is None:
             return
 
         self.logger.info("🛑 正在停止後端程序...")
         self.process.stop()
         if self.process_thread:
-            self.process_thread.join()
+            self.process_thread.join(timeout=1.0)
         
         self.process = None
         
@@ -217,7 +217,6 @@ class SystemController:
         
         webbrowser.open(url)
         
-        # ⚠️ 修正：程式啟動時，強制重置狀態為 stopped (防殭屍狀態)
         self.logger.info("🧹 初始化狀態為 Stopped...")
         db.reference(f'{self.cfg.PROJECT_NAME}/status').set({
             'state': 'stopped',
@@ -234,16 +233,14 @@ class SystemController:
                 time.sleep(1)
         except KeyboardInterrupt:
             self.logger.info("👋 正在關閉系統...")
-            self._cleanup_listeners()
-            if self.process and self.process.running:
-                self.stop_process()
-            
             # 確保最後狀態是 offline
             db.reference(f'{self.cfg.PROJECT_NAME}/status').update({
                 'state': 'offline',
                 'message': '後端程式已關閉'
             })
-            sys.exit(0)
+            if self.process:
+                self.stop_process()
+            os._exit(0)
 
 if __name__ == "__main__":
     ctrl = SystemController()

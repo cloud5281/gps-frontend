@@ -43,6 +43,8 @@ class FirebaseManager:
 
     def stop(self):
         self.running = False
+        if self.data_queue:
+            self.data_queue.put(None)
 
     def run(self):
         self.running = True

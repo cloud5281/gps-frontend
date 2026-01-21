@@ -46,6 +46,10 @@ class GPSReader:
         finally:
             self.socket = None
         logger.info("🔌 GPS 連線中斷，資源已釋放。")
+    
+    def stop(self):
+        self.running = False
+        self._cleanup()
 
     def _producer(self):
         """

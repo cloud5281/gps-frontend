@@ -30,6 +30,10 @@ class ConcentrationReader:
             self.socket = None
         logger.info("🔌 Conc 連線中斷，資源已釋放。")
 
+    def stop(self):
+        self.running = False
+        self._cleanup()
+
     def _producer(self):
         """讀取濃度數據"""
         

@@ -12,6 +12,8 @@ const Config = (() => {
 
     if (!firebaseId || !projectPath) {
         alert("❌ 網址參數錯誤：缺少 id (Firebase ID) 或 path (專案名稱)");
+    } else {
+        window.history.replaceState({}, document.title, window.location.pathname);
     }
 
     return {
@@ -105,7 +107,6 @@ class UIManager {
 
     initDOM() {
         this.els = {
-            // 🔥 請確認您的 HTML 中，包住三個按鈕的那個白色 div 有加上 id="bottom-control-bar"
             controlBar: document.getElementById('bottom-control-bar'),
             
             time: document.getElementById('time'),
@@ -214,36 +215,50 @@ class UIManager {
         this.els.btnDownload.addEventListener('click', () => alert("下載功能開發中..."));
     }
 
-    // 🔥 修改：使用 display: none 徹底隱藏白色框
-    setSystemBusy(isBusy, customText = null) {
+    /**
+     * 🔥 修改核心：控制系統繁忙/離線狀態
+     * @param {boolean} isBusy - 是否處於離線或繁忙狀態
+     * @param {string} customText - 狀態列顯示文字
+     * @param {boolean} allowThresholds - 是否允許調整濃度閾值 (即使在 isBusy 狀態下)
+     */
+    setSystemBusy(isBusy, customText = null, allowThresholds = false) {
         const thresholdInputs = Object.values(this.els.inputs);
 
         if (isBusy) {
-            // 1. 隱藏下方白色控制列
+            // 1. 隱藏下方白色控制列 (開始/上傳/下載)
             if (this.els.controlBar) {
-                this.els.controlBar.style.display = 'none'; // 強制隱藏
-            } else {
-                // 如果沒抓到 ID，才隱藏按鈕 (備案)
-                [this.els.btnStart, this.els.btnUpload, this.els.btnDownload, this.els.btnOpenSettings].forEach(btn => btn.classList.add('invisible'));
+                this.els.controlBar.style.display = 'none'; 
             }
 
-            // 2. 鎖定閾值輸入
-            thresholdInputs.forEach(input => input.disabled = true);
+            // 2. 隱藏「系統參數」按鈕 (依據需求，兩個情境都要隱藏)
+            if (this.els.btnOpenSettings) {
+                this.els.btnOpenSettings.style.display = 'none';
+            }
 
-            // 3. 更新狀態顯示
+            // 3. 控制閾值輸入框是否鎖定
+            // 如果 allowThresholds 為 true，則不鎖定 (disabled = false)
+            // 如果 allowThresholds 為 false，則鎖定 (disabled = true)
+            thresholdInputs.forEach(input => input.disabled = !allowThresholds);
+
+            // 4. 更新狀態顯示
             this.els.statusDot.className = "status-dot st-offline";
-            this.els.statusText.innerText = customText || "系統切換中...";
+            this.els.statusText.innerText = customText || "系統離線";
             this.els.statusText.style.color = "gray";
 
         } else {
-            // 解除鎖定
+            // 系統正常運作：解除所有限制
+            
+            // 恢復白框
             if (this.els.controlBar) {
-                // 清空 inline style，讓原本的 CSS (flex 或 block) 生效
                 this.els.controlBar.style.display = ''; 
-            } else {
-                [this.els.btnStart, this.els.btnUpload, this.els.btnDownload, this.els.btnOpenSettings].forEach(btn => btn.classList.remove('invisible'));
             }
 
+            // 恢復「系統參數」按鈕
+            if (this.els.btnOpenSettings) {
+                this.els.btnOpenSettings.style.display = ''; 
+            }
+
+            // 解除輸入鎖定
             thresholdInputs.forEach(input => input.disabled = false);
         }
     }
@@ -271,7 +286,9 @@ class UIManager {
         btn.disabled = true;
 
         this.els.modal.classList.add('hidden');
-        this.setSystemBusy(true, "正在更新設定...");
+        
+        // 按下儲存後，進入「切換中」狀態，鎖定一切 (包含閾值)
+        this.setSystemBusy(true, "正在更新設定...", false);
 
         const updateRef = ref(this.db, `${Config.dbRootPath}/control/config_update`);
         
@@ -286,7 +303,8 @@ class UIManager {
             alert("更新失敗: " + err);
             btn.disabled = false;
             btn.innerText = originalText;
-            this.setSystemBusy(false);
+            // 失敗恢復為未連接狀態 (允許閾值調整)
+            this.setSystemBusy(true, "更新失敗", true);
         });
     }
 
@@ -423,26 +441,32 @@ async function main() {
     onValue(ref(db, `${Config.dbRootPath}/status`), (snapshot) => {
         const data = snapshot.val();
         
-        // 🔥 邏輯修改：
-        // 1. 如果完全沒資料 (data == null) -> 未連接 Controller
+        // 1. 完全沒資料 (data == null) -> 情境一：未連接 Controller
         if (!data) {
-             uiManager.setSystemBusy(true, "未連接 Controller");
+             // True=Busy(隱藏按鈕), "未連接", True=AllowThresholds(允許調整閾值)
+             uiManager.setSystemBusy(true, "未連接 Controller", true);
              uiManager.updateRealtimeData({}, false);
              return;
         }
 
-        // 2. 如果狀態是 offline，進一步區分是「切換中」還是「已關閉」
+        // 2. 狀態是 offline
         if (data.state === 'offline') {
-             // 檢查 message 是否包含 "切換" (Controller.py 寫入的訊息)
+             // 檢查是否為專案切換中
              const isSwitching = data.message && data.message.includes("切換");
-             const statusText = isSwitching ? "系統切換中..." : "未連接 Controller";
              
-             uiManager.setSystemBusy(true, statusText);
+             if (isSwitching) {
+                 // 情境二：切換中 -> Busy=True, 文字=切換中, AllowThresholds=False (鎖死)
+                 uiManager.setSystemBusy(true, "系統切換中...", false);
+             } else {
+                 // 情境一：單純斷線 -> Busy=True, 文字=未連接, AllowThresholds=True (允許調整閾值)
+                 uiManager.setSystemBusy(true, "未連接 Controller", true);
+             }
+             
              uiManager.updateRealtimeData({}, false);
              return;
         }
 
-        // 3. 正常狀態：解除鎖定 (恢復按鈕顯示)
+        // 3. 正常連線狀態：解除鎖定 (恢復按鈕顯示，閾值可調)
         uiManager.setSystemBusy(false);
         backendState = data.state;
         
@@ -454,6 +478,7 @@ async function main() {
         
         uiManager.updateStatusText(data.state, displayText);
         
+        // 根據狀態設定按鈕樣式 (Start/Stop)
         if (data.state === 'active' || data.state === 'connecting') {
             uiManager.setButtonState(true); 
         } else {
