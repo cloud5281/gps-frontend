@@ -4,6 +4,7 @@ import time
 import firebase_admin
 import webbrowser
 import json
+import sys
 
 from firebase_admin import credentials, db
 from Config import Config
@@ -15,27 +16,24 @@ class SystemController:
         self.logger = self._setup_logger()
         self.process = None
         self.process_thread = None
-        # 先讀取設定檔以獲取 Firebase 資訊
+        
+        self.cmd_listener = None
+        self.config_listener = None
+
         try:
             self.cfg = Config(self.config_file)
         except Exception as e:
             self.logger.error(f"❌ 設定檔讀取失敗: {e}")
             raise
 
-        # 初始化 Firebase (用於監聽指令)
-        self._init_firebase_listener()
+        self._init_firebase()
 
     def _setup_logger(self):
-        """設定日誌系統：同時輸出到螢幕與檔案"""
         log_filename = "execution.log" 
-
-        # 設定 Handlers
         handlers = [
-            logging.StreamHandler(),  # 輸出到控制台
+            logging.StreamHandler(),
             logging.FileHandler(log_filename, encoding='utf-8', mode='w') 
         ]
-
-        # 套用設定
         logging.basicConfig(
             level=logging.INFO,
             format='[%(asctime)s] %(message)s',
@@ -43,16 +41,14 @@ class SystemController:
             handlers=handlers,
             force=True  
         )
-        
         return logging.getLogger("Controller")
 
-    def _init_firebase_listener(self):
-        """初始化 Firebase 連線並準備監聽"""
+    def _init_firebase(self):
         try:
             if not firebase_admin._apps:
                 cred = credentials.Certificate(self.cfg.FIREBASE_KEY)
                 firebase_admin.initialize_app(cred, {'databaseURL': self.cfg.DB_URL})
-            self.logger.info("📡 Controller 已連線至 Firebase，等待前端指令...")
+            self.logger.info("📡 Controller 已連線至 Firebase")
         except Exception as e:
             self.logger.error(f"❌ Firebase 連線失敗: {e}")
 
@@ -65,11 +61,33 @@ class SystemController:
                 "gps_port": self.cfg.GPS_PORT,
                 "conc_unit": self.cfg.CONC_UNIT
             }
-            # 寫入到 settings/current_config 節點
             db.reference(f'{self.cfg.PROJECT_NAME}/settings/current_config').set(data)
-            # self.logger.info("📤 已將目前參數同步至 Firebase，前端可自動讀取")
+            self.logger.info(f"📤 已同步設定至專案: {self.cfg.PROJECT_NAME}")
         except Exception as e:
             self.logger.warning(f"同步參數失敗: {e}")
+
+    def _setup_listeners(self):
+        self._cleanup_listeners()
+        self.logger.info(f"👂 開始監聽專案路徑: {self.cfg.PROJECT_NAME}")
+
+        cmd_ref = db.reference(f'{self.cfg.PROJECT_NAME}/control/command')
+        cmd_ref.set("") 
+        self.cmd_listener = cmd_ref.listen(self._command_handler)
+
+        config_ref = db.reference(f'{self.cfg.PROJECT_NAME}/control/config_update')
+        config_ref.delete()
+        self.config_listener = config_ref.listen(self._handle_config_update)
+
+    def _cleanup_listeners(self):
+        try:
+            if self.cmd_listener:
+                self.cmd_listener.close()
+                self.cmd_listener = None
+            if self.config_listener:
+                self.config_listener.close()
+                self.config_listener = None
+        except Exception as e:
+            self.logger.warning(f"關閉監聽器時發生錯誤 (可忽略): {e}")
 
     def _handle_config_update(self, event):
         if event.data is None or event.data == "": return
@@ -77,12 +95,13 @@ class SystemController:
         new_settings = event.data
         self.logger.info(f"⚙️ 收到參數更新請求: {new_settings}")
         
+        old_project_name = self.cfg.PROJECT_NAME
+        new_project_name = new_settings.get('project_name', old_project_name)
+
         try:
-            # 1. 讀取原始 json 檔 (保持其他欄位不變)
             with open(self.config_file, 'r', encoding='utf-8') as f:
                 config_data = json.load(f)
 
-            # 2. 更新數值
             if 'project_name' in new_settings:
                 config_data['settings']['project_name'] = new_settings['project_name']
             if 'gps_ip' in new_settings:
@@ -92,100 +111,93 @@ class SystemController:
             if 'conc_unit' in new_settings:
                 config_data['conc']['unit'] = new_settings['conc_unit']
 
-            # 3. 寫回 config.json
             with open(self.config_file, 'w', encoding='utf-8') as f:
                 json.dump(config_data, f, indent=2, ensure_ascii=False)
             
-            self.logger.info("✅ config.json 已更新！")
+            self.logger.info("✅ config.json 已更新")
 
-            db.reference(f'{self.cfg.PROJECT_NAME}/control/config_update').delete()
-            self.cfg = Config(self.config_file) 
-            # 再推一次新的設定上去確認
+            db.reference(f'{old_project_name}/control/config_update').delete()
+
+            self.cfg = Config(self.config_file)
+
+            if old_project_name != new_project_name:
+                self.logger.info(f"🔄 專案變更 ({old_project_name} -> {new_project_name})，重啟監聽...")
+                if self.process and self.process.running:
+                    self.stop_process()
+                self._setup_listeners()
+            
             self._push_current_config_to_firebase()
 
         except Exception as e:
             self.logger.error(f"❌ 更新設定檔失敗: {e}")
 
     def _command_handler(self, event):
-        """當 Firebase 上的 'control/command' 數值改變時，會觸發此函式"""
         if event.data is None or event.data == "": return
-        
         command = str(event.data).lower()
-        if not command: return      # 再次確認有沒有指令 (防呆)
-        self.logger.info(f"📩 收到前端指令: {command}")
-
+        
         if command == "start":
+            self.logger.info(f"📩 收到指令: {command}")
             self.start_process()
         elif command == "stop":
+            self.logger.info(f"📩 收到指令: {command}")
             self.stop_process()
-        else:
-            self.logger.warning(f"⚠️ 未知指令: {command}")
-    
+
     def start_process(self):
-        """讀取 Config 並啟動 Process"""
-        if self.process is not None and self.process.running: return
-        # self.logger.info("啟動系統...")
-    
-        # 讀取最新設定 (每次 Start 都重新讀取，方便參數更新)
+        if self.process is not None and self.process.running:
+            return 
+        
         try:
             current_cfg = Config(self.config_file)
             self.process = RunProcess(current_cfg)
             self.process_thread = threading.Thread(target=self.process.run)
             self.process_thread.start()
-            # 回報狀態給 Firebase (讓前端知道後端真的動了)
-            db.reference(f'{self.cfg.PROJECT_NAME}/control/status').set('running')
+            db.reference(f'{self.cfg.PROJECT_NAME}/control/status').set({'state': 'active'})
             
         except Exception as e:
             self.logger.error(f"❌ 啟動失敗: {e}")
+            db.reference(f'{self.cfg.PROJECT_NAME}/control/status').set({'state': 'error'})
 
     def stop_process(self):
-        """停止 Process"""
-        if self.process is None or not self.process.running: return
+        if self.process is None or not self.process.running:
+            return
 
-        self.logger.info("正在停止系統...")
+        self.logger.info("🛑 正在停止採集程序...")
         self.process.stop()
         if self.process_thread:
             self.process_thread.join()
         
         self.process = None
-        # 回報狀態
-        db.reference(f'{self.cfg.PROJECT_NAME}/control/status').set('stopped')
-        self.logger.info("系統已完全停止")
-        self.logger.info("---程式結束---")
-        logging.shutdown()
+        db.reference(f'{self.cfg.PROJECT_NAME}/control/status').set({'state': 'stopped'})
+        self.logger.info("✅ 採集已停止")
 
     def run(self):
-        """主程式進入無窮迴圈，持續監聽 Firebase"""
         url = (f"{self.cfg.MAP_URL}?"
-                f"id={self.cfg.DB_ID}&"
-                f"path={self.cfg.PROJECT_NAME}&"
-                f"key={self.cfg.API_KEY}"
-        )
+               f"id={self.cfg.DB_ID}&"
+               f"path={self.cfg.PROJECT_NAME}&"
+               f"key={self.cfg.API_KEY}")
+        
         webbrowser.open(url)
-        cmd_ref = db.reference(f'{self.cfg.PROJECT_NAME}/control/command')
         
-        # 第一次啟動先歸零指令，避免上次殘留的 start 導致意外啟動
-        cmd_ref.set("") 
-        
-        # 開始監聽 (listen 是非阻塞的，所以下面需要一個 while loop 讓程式不結束)
-        cmd_listener = cmd_ref.listen(self._command_handler)
+        # ★ 新增：程式啟動時，強制將雲端狀態改為 stopped
+        # 這樣可以防止上次不正常關閉後，前端打開還顯示 active
+        self.logger.info("🧹 初始化狀態為 Stopped...")
+        db.reference(f'{self.cfg.PROJECT_NAME}/control/status').set({'state': 'stopped'})
 
-        config_ref = db.reference(f'{self.cfg.PROJECT_NAME}/control/config_update')
-        config_ref.delete() # 清空舊請求
-        config_listener = config_ref.listen(self._handle_config_update)
+        self._push_current_config_to_firebase()
+        self._setup_listeners()
         
-        self.logger.info("🟢 後端程式已開始運作")
-        self.logger.info("按 Ctrl+C 可關閉後端程式。")
+        self.logger.info("🟢 後端程式運作中 (按 Ctrl+C 結束)")
         
         try:
             while True:
-                time.sleep(1) 
+                time.sleep(1)
         except KeyboardInterrupt:
-            self.logger.info("👋 正在關閉後端程式...")
+            self.logger.info("👋 正在關閉系統...")
+            self._cleanup_listeners()
             if self.process and self.process.running:
                 self.stop_process()
-            cmd_listener.close()
-            config_listener.close()
+            self.logger.info("---程式結束---")
+            sys.exit(0)
 
 if __name__ == "__main__":
     ctrl = SystemController()
