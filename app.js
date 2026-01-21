@@ -7,8 +7,8 @@ import { getDatabase, ref, onValue, onChildAdded, set } from "https://www.gstati
 const Config = (() => {
     const urlParams = new URLSearchParams(window.location.search);
     
-    const firebaseId = urlParams.get('id'); 
-    const projectPath = urlParams.get('path');
+    const firebaseId = urlParams.get('id') || "real-time-gps-84c8a"; 
+    const projectPath = urlParams.get('path') || "test_project";
 
     if (!firebaseId || !projectPath) {
         alert("❌ 網址參數錯誤：缺少 id (Firebase ID) 或 path (專案名稱)");
@@ -454,27 +454,24 @@ async function main() {
     onValue(ref(db, `${Config.dbRootPath}/status`), (snapshot) => {
         const data = snapshot.val();
         
-        // 1. 完全沒資料 (data == null) -> 情境一：未連接 Controller
+        // 1. 資料為空 (新專案 或 Controller未開啟)
         if (!data) {
-             // 檢查是否剛切換過專案 (讀取 sessionStorage)
-             const isSwitching = sessionStorage.getItem('is_switching');
+             // 檢查是否有「切換中」的標記
+             if (sessionStorage.getItem('is_switching') === 'true') {
+                 // 情境：剛切換到新專案，Controller 還沒建立資料 -> 鎖定並顯示切換中
+                 uiManager.setSystemBusy(true, "系統切換中...", false);
 
-             if (isSwitching) {
-                 // 情境 A：剛切換完專案，後端還沒寫入狀態 -> 顯示「切換中」，鎖定介面
-                 // 設定：Busy=True, 文字=建立連線中..., AllowThresholds=False (鎖定)
-                 uiManager.setSystemBusy(true, "建立連線中... (新專案)", false);
-                 
-                 // 設定一個 10 秒保險機制：如果 10 秒後後端還沒上線，就視為斷線並允許操作
+                 // (選用) 安全機制：如果過了 10 秒後端還是沒反應，自動解鎖避免卡死
                  setTimeout(() => {
-                    if (sessionStorage.getItem('is_switching')) {
-                        sessionStorage.removeItem('is_switching');
-                        // 這裡不強制刷新 UI，等待下一次 Firebase 回調或用戶手動重整
-                    }
+                     if (sessionStorage.getItem('is_switching')) {
+                         sessionStorage.removeItem('is_switching');
+                         // 強制更新 UI 為未連接狀態
+                         uiManager.setSystemBusy(true, "未連接 Controller (回應逾時)", true);
+                     }
                  }, 10000);
 
              } else {
-                 // 情境 B：單純打開網頁，後端沒開 -> 顯示「未連接」，允許調整閾值
-                 // 設定：Busy=True, 文字=未連接 Controller, AllowThresholds=True (允許)
+                 // 情境：單純打開網頁，且沒資料 -> 未連接，允許調整
                  uiManager.setSystemBusy(true, "未連接 Controller", true);
              }
              
@@ -482,16 +479,14 @@ async function main() {
              return;
         }
 
-        // --- 2. 收到資料，代表連線成功 ---
-        
-        // 🔥 關鍵：一旦收到資料，代表後端已經連上，立刻清除切換標記
+        // 2. 只要讀得到資料，代表連線成功或已有紀錄，清除切換標記
         sessionStorage.removeItem('is_switching');
 
-        // (原本的狀態判斷邏輯)
+        // 3. 原有的狀態判斷邏輯
         if (data.state === 'offline') {
-             const isServerSwitching = data.message && data.message.includes("切換");
+             const isSwitching = data.message && data.message.includes("切換");
              
-             if (isServerSwitching) {
+             if (isSwitching) {
                  uiManager.setSystemBusy(true, "系統切換中...", false);
              } else {
                  uiManager.setSystemBusy(true, "未連接 Controller", true);
@@ -500,17 +495,15 @@ async function main() {
              return;
         }
 
-        // 3. 正常運作狀態 (active, stopped, connecting...)
+        // 4. 正常運作狀態 (active, connecting, stopped...)
         uiManager.setSystemBusy(false);
         backendState = data.state;
         
-        // ... (後面的顯示邏輯保持不變) ...
         let displayText = '未連線';
         if (data.state === 'active') displayText = '連線正常';
         else if (data.state === 'connecting') displayText = '連線中...';
         else if (data.state === 'timeout') displayText = '連線逾時';
         else if (data.state === 'stopped') displayText = '已停止';
-        // ...
         
         uiManager.updateStatusText(data.state, displayText);
         
