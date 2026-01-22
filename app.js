@@ -47,6 +47,7 @@ class MapManager {
             }) 
         }).addTo(this.map);
 
+        this.pathLine = L.polyline([], {color: 'blue', weight: 4}).addTo(this.map);
         this.historyLayer = L.layerGroup().addTo(this.map);
         this.coordsArray = [];
     }
@@ -60,13 +61,11 @@ class MapManager {
     addHistoryPoint(data, getColorFn) {
         const pos = [data.lat, data.lon];
         this.coordsArray.push(pos);
+        this.pathLine.setLatLngs(this.coordsArray);
 
         const color = getColorFn(data.conc);
         const circle = L.circleMarker(pos, {
-            stroke: false,
-            fillColor: color, 
-            fillOpacity: 0.9, 
-            radius: 5
+            color: 'white', fillColor: color, fillOpacity: 0.9, weight: 1, radius: 8
         });
         circle.concValue = data.conc;
 
@@ -103,6 +102,7 @@ class UIManager {
 
         this.initDOM();
         
+        // 初始化：預設為 offline 模式
         this.setInterfaceMode('offline', "未連接 Controller", "gray", "offline");
 
         this.bindEvents();
@@ -250,7 +250,7 @@ class UIManager {
         }
 
         this.els.btnStart.addEventListener('click', () => this.toggleRecordingCommand());
-        this.els.btnUpload.addEventListener('click', () => alert(`上傳功能開發中...`));
+        this.els.btnUpload.addEventListener('click', () => alert(`準備上傳至 IP: ${Config.gpsIp} Port: ${Config.gpsPort}`));
         this.els.btnDownload.addEventListener('click', () => alert("下載功能開發中..."));
     }
 
@@ -267,7 +267,13 @@ class UIManager {
             thresholdInputs.forEach(input => input.disabled = true);
         }
         else if (mode === 'offline') {
-            if (this.els.controlBar) this.els.controlBar.style.display = 'none';
+            // 🔥 離線模式：顯示控制列、上傳、下載，但隱藏開始，隱藏設定
+            if (this.els.controlBar) this.els.controlBar.style.display = ''; 
+            
+            this.els.btnStart.classList.add('hidden');         // 隱藏開始
+            this.els.btnUpload.classList.remove('hidden');     // 顯示上傳
+            this.els.btnDownload.classList.remove('hidden');   // 顯示下載
+            
             if (this.els.btnOpenSettings) this.els.btnOpenSettings.style.display = 'none';
             thresholdInputs.forEach(input => input.disabled = false);
         }
@@ -276,7 +282,9 @@ class UIManager {
             if (this.els.btnOpenSettings) this.els.btnOpenSettings.classList.add('invisible'); 
             
             this.els.btnStart.innerText = "停止";
+            this.els.btnStart.classList.remove('hidden'); // 確保顯示
             this.els.btnStart.classList.add('btn-stop');
+            
             this.els.btnUpload.classList.add('hidden');
             this.els.btnDownload.classList.add('hidden');
             
@@ -291,7 +299,9 @@ class UIManager {
             }
 
             this.els.btnStart.innerText = "開始";
+            this.els.btnStart.classList.remove('hidden'); // 確保顯示
             this.els.btnStart.classList.remove('btn-stop');
+            
             this.els.btnUpload.classList.remove('hidden');
             this.els.btnDownload.classList.remove('hidden');
 
@@ -399,8 +409,8 @@ class UIManager {
         const valC = parseFloat(elC.value);
         let error = null;
         if (isNaN(valA) || isNaN(valB) || isNaN(valC)) error = "❌ 請填入完整數值";
-        else if (valA >= valB) { elA.classList.add('input-error'); error = "❌ 黃色閾值需大於綠色閾值"; }
-        else if (valB >= valC) { elB.classList.add('input-error'); error = "❌ 橙色閾值需大於黃色閾值"; }
+        else if (valA >= valB) { elA.classList.add('input-error'); error = "❌ 黃色需大於綠色"; }
+        else if (valB >= valC) { elB.classList.add('input-error'); error = "❌ 橙色需大於黃色"; }
 
         if (error) {
             msgBox.innerText = error;
@@ -470,7 +480,7 @@ async function main() {
             if (data && data.state === 'switching') {
                 uiManager.setInterfaceMode('switching', "專案切換中", "gray", "offline");
             } else {
-                uiManager.setInterfaceMode('offline', "未連接 Controller", "gray", "offline");
+                uiManager.setInterfaceMode('offline', "未連上 Controller", "gray", "offline");
             }
             uiManager.updateRealtimeData({}, false);
             return;
@@ -501,7 +511,7 @@ async function main() {
                 break;
 
             default:
-                uiManager.setInterfaceMode('offline', "未連接 Controller", "gray", "offline");
+                uiManager.setInterfaceMode('offline', "未連上 Controller", "gray", "offline");
                 break;
         }
 
