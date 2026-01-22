@@ -24,6 +24,8 @@ const Config = (() => {
         gpsPort: "",
         concUnit: "",
         dbURL: urlParams.get('db') || null,
+        // 🔥🔥 修改 1：新增統一的縮放比例設定 (建議 17) 🔥🔥
+        ZOOM_LEVEL: 17, 
         COLORS: {
             GREEN: '#28a745', YELLOW: '#ffc107', ORANGE: '#fd7e14', RED: '#dc3545'
         }
@@ -35,7 +37,9 @@ const Config = (() => {
  */
 class MapManager {
     constructor() {
-        this.map = L.map('map').setView([25.0330, 121.5654], 16);
+        // 🔥🔥 修改 2：使用 Config.ZOOM_LEVEL 初始化 🔥🔥
+        this.map = L.map('map').setView([25.0330, 121.5654], Config.ZOOM_LEVEL);
+        
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             attribution: '© OpenStreetMap contributors'
         }).addTo(this.map);
@@ -159,13 +163,10 @@ class UIManager {
 
     syncConfigFromBackend(data) {
         if (!data) return;
-        // 🔥🔥🔥 修正1：不要讓後端覆蓋專案名稱！網址列才是老大 🔥🔥🔥
-        // Config.dbRootPath = data.project_name || Config.dbRootPath;  <-- 刪除這行
         Config.gpsIp = data.gps_ip || "";
         Config.gpsPort = data.gps_port || "";
         Config.concUnit = data.conc_unit || "";
         
-        // this.els.path.innerText = Config.dbRootPath; <-- 這行也不需要了，初始化時已設定
         if (!this.els.modal.classList.contains('hidden')) {
             this.fillSettingsInputs();
         }
@@ -333,20 +334,16 @@ class UIManager {
                         if (isDifferentProject) {
                             alert(`✅ 上傳成功！共 ${count} 筆資料。\n\n系統將自動切換至新專案: ${projectName}`);
                             
-                            // 1. UI 顯示
                             btn.innerText = "切換中...";
                             this.setInterfaceMode('switching', "專案切換中...", "gray", "offline");
 
-                            // 2. 通知後端
                             const updateRef = ref(this.db, `${Config.dbRootPath}/control/config_update`);
                             set(updateRef, { project_name: projectName });
 
-                            // 3. 設定跳轉
                             const url = new URL(window.location.href);
                             url.searchParams.set('path', projectName);
                             localStorage.setItem('should_fit_bounds', 'true');
                             
-                            // 🔥🔥🔥 修正2：使用 location.href 強制跳轉，確保參數正確 🔥🔥🔥
                             window.location.href = url.toString();
                             
                         } else {
@@ -510,7 +507,6 @@ class UIManager {
                 
                 localStorage.setItem('is_switching', 'true');
                 
-                // 🔥🔥🔥 修正3：手動修改專案時，也使用 location.href 強制跳轉 🔥🔥🔥
                 window.location.href = url.toString();
             } else {
                 btn.innerText = "✅ 已更新";
@@ -637,7 +633,8 @@ async function main() {
 
                 if (lastRecord && lastRecord.lat && lastRecord.lon) {
                     mapManager.updateCurrentPosition(lastRecord.lat, lastRecord.lon, true);
-                    mapManager.map.setZoom(16);
+                    // 🔥🔥 修改 3：統一使用 Config.ZOOM_LEVEL 🔥🔥
+                    mapManager.map.setZoom(Config.ZOOM_LEVEL);
                 }
             }
             
