@@ -96,13 +96,12 @@ class UIManager {
     constructor(mapManager, db) {
         this.mapManager = mapManager;
         this.db = db;
-        // 預設值，之後會被 Firebase 覆蓋
+        // 預設值
         this.thresholds = { a: 50, b: 100, c: 150 };
         this.isRecording = false;
 
         this.initDOM();
         this.bindEvents();
-        // 移除 loadThresholdSettings (不再讀取 localStorage)
         this.startClock();
     }
 
@@ -148,8 +147,11 @@ class UIManager {
         };
 
         this.els.path.innerText = Config.dbRootPath;
-        // 初始化顯示預設值
+        // 先把預設值填進去顯示
         this.updateThresholdDisplay();
+        this.els.inputs.a.value = this.thresholds.a;
+        this.els.inputs.b.value = this.thresholds.b;
+        this.els.inputs.c.value = this.thresholds.c;
     }
 
     syncConfigFromBackend(data) {
@@ -165,20 +167,23 @@ class UIManager {
         }
     }
 
-    // 🔥 新增：從 Firebase 同步閾值
+    // 🔥 核心修改：如果是空的，就上傳預設值
     syncThresholdsFromBackend(data) {
         if (data) {
+            // Case A: Firebase 有資料 -> 同步下來
             this.thresholds = {
                 a: parseFloat(data.a),
                 b: parseFloat(data.b),
                 c: parseFloat(data.c)
             };
         } else {
-            // 如果 Firebase 沒資料，維持預設值 (50, 100, 150)
-            this.thresholds = { a: 50, b: 100, c: 150 };
+            // Case B: Firebase 沒資料 -> 將目前的預設值上傳初始化
+            // console.log("Firebase 無閾值資料，正在初始化上傳...");
+            this.saveThresholdSettings(true); // true = 靜默上傳，不顯示提示框
+            return; // 上傳後會再次觸發這個監聽，所以這裡直接 return 即可
         }
         
-        // 更新輸入框與顯示文字 (避免正在輸入時被覆蓋，這裡簡單處理直接覆蓋確保同步)
+        // 更新輸入框 (如果使用者沒有正在打字的話)
         if (document.activeElement !== this.els.inputs.a && 
             document.activeElement !== this.els.inputs.b && 
             document.activeElement !== this.els.inputs.c) {
@@ -219,13 +224,12 @@ class UIManager {
             this.saveBackendSettings();
         });
 
-        // 閾值輸入監聽：按下 Enter 或 失去焦點(Blur) 時存檔
         Object.values(this.els.inputs).forEach(input => {
             const saveHandler = (e) => {
                 if (e.type === 'keydown' && e.key !== 'Enter') return;
                 e.preventDefault();
                 input.blur();
-                this.saveThresholdSettings(); // 存到 Firebase
+                this.saveThresholdSettings(); 
             };
             input.addEventListener('keydown', saveHandler);
             input.addEventListener('blur', () => this.saveThresholdSettings());
@@ -267,7 +271,7 @@ class UIManager {
         else if (mode === 'offline') {
             if (this.els.controlBar) this.els.controlBar.style.display = 'none';
             if (this.els.btnOpenSettings) this.els.btnOpenSettings.style.display = 'none';
-            thresholdInputs.forEach(input => input.disabled = false); // 離線仍可改閾值
+            thresholdInputs.forEach(input => input.disabled = false);
         }
         else if (mode === 'recording') {
             if (this.els.controlBar) this.els.controlBar.style.display = '';
@@ -386,7 +390,7 @@ class UIManager {
         return Config.COLORS.RED;
     }
 
-    // 🔥 修改：存到 Firebase 而不是 LocalStorage
+    // 儲存閾值到 Firebase
     saveThresholdSettings(isSilent = false) {
         const { a: elA, b: elB, c: elC } = this.els.inputs;
         const msgBox = this.els.msgBox;
@@ -444,17 +448,14 @@ async function main() {
     let backendState = 'offline';
     let lastGpsData = null;
 
-    // 監聽後端 Config
     onValue(ref(db, `${Config.dbRootPath}/settings/current_config`), (snapshot) => {
         if (snapshot.val()) uiManager.syncConfigFromBackend(snapshot.val());
     });
 
-    // 🔥 新增：監聽閾值設定 (當 Firebase 變動時，自動同步到網頁)
     onValue(ref(db, `${Config.dbRootPath}/settings/thresholds`), (snapshot) => {
         uiManager.syncThresholdsFromBackend(snapshot.val());
     });
 
-    // 監聽狀態
     onValue(ref(db, `${Config.dbRootPath}/status`), (snapshot) => {
         const data = snapshot.val();
         const isSwitchingLocal = localStorage.getItem('is_switching');
