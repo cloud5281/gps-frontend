@@ -105,20 +105,27 @@ class SystemController:
         new_project_name = new_settings.get('project_name', old_project_name)
 
         try:
-            # 🔥 修正重點：無論專案名是否變更，都要送出明確的「更新中」訊息
+            # 1. 處理舊專案狀態 (變為離線)
             if old_project_name != new_project_name:
                 self.logger.info(f"👋 正在將舊專案 ({old_project_name}) 標記為離線...")
                 db.reference(f'{old_project_name}/status').set({
                     'state': 'offline',
                     'message': f'後端已切換至: {new_project_name}'
                 })
+                
+                # 🔥 [關鍵]：預先將新專案設為「switching」，對應前端「專案切換中」
+                self.logger.info(f"🔜 預先初始化新專案 ({new_project_name}) 狀態...")
+                db.reference(f'{new_project_name}/status').set({
+                    'state': 'switching', 
+                    'message': '專案切換初始化中...'
+                })
             else:
-                # 即使專案名沒變，也要設為 Offline，並加上「更新」字樣讓前端識別
                 db.reference(f'{old_project_name}/status').update({
-                    'state': 'offline',
+                    'state': 'switching',
                     'message': '系統設定更新中...'
                 })
 
+            # 2. 更新本地設定檔
             with open(self.config_file, 'r', encoding='utf-8') as f:
                 config_data = json.load(f)
 
@@ -139,22 +146,21 @@ class SystemController:
 
             self.cfg = Config(self.config_file)
 
-            # 重新啟動監聽器
+            # 3. 重新啟動監聽器與程序
             if old_project_name != new_project_name:
                 self.logger.info(f"🔄 專案變更，正在重啟監聽器...")
                 if self.process and self.process.running:
                     self.stop_process()
                 self._setup_listeners()
             else:
-                # 如果專案沒變但 IP 變了，也需要重啟 Process (如果正在跑)
                 if self.process and self.process.running:
                     self.logger.info("🔄 偵測到參數變更，重啟子程序...")
                     self.stop_process()
                     self.start_process()
 
-            time.sleep(1.0) # 稍微加長緩衝時間
+            time.sleep(1.0) 
             
-            # 只有當 Process 沒在跑的時候才設為 stopped (避免覆蓋 active/connecting)
+            # 4. 完成切換，將狀態設為 stopped (對應前端：紀錄已停止，請重新開始)
             if not (self.process and self.process.running):
                 db.reference(f'{new_project_name}/status').set({
                     'state': 'stopped',
@@ -184,7 +190,6 @@ class SystemController:
             self.stop_process()
 
     def start_process(self):
-        # 這裡會因為 Process.py 的修正，正確判斷是否正在執行
         if self.process is not None and self.process.running:
             return 
         
@@ -194,6 +199,7 @@ class SystemController:
             self.process_thread = threading.Thread(target=self.process.run, daemon=True)
             self.process_thread.start()
 
+            # 🔥 狀態：連線中...
             db.reference(f'{self.cfg.PROJECT_NAME}/status').update({
                 'state': 'connecting',
                 'message': '系統啟動中...'
@@ -202,7 +208,7 @@ class SystemController:
         except Exception as e:
             self.logger.error(f"❌ 啟動失敗: {e}")
             db.reference(f'{self.cfg.PROJECT_NAME}/status').update({
-                'state': 'error',
+                'state': 'stopped', # 啟動失敗直接回到 stopped
                 'message': f'啟動失敗: {str(e)}'
             })
 
@@ -217,7 +223,7 @@ class SystemController:
         
         self.process = None
         
-        # ⚠️ 修正：統一寫入到根目錄 status
+        # 🔥 狀態：紀錄已停止
         db.reference(f'{self.cfg.PROJECT_NAME}/status').update({
             'state': 'stopped',
             'message': '使用者手動停止'
@@ -233,6 +239,7 @@ class SystemController:
         webbrowser.open(url)
         
         self.logger.info("🧹 初始化狀態為 Stopped...")
+        # 初始狀態：紀錄已停止
         db.reference(f'{self.cfg.PROJECT_NAME}/status').set({
             'state': 'stopped',
             'message': '後端程式已就緒 (等待指令)'
@@ -248,7 +255,7 @@ class SystemController:
                 time.sleep(1)
         except KeyboardInterrupt:
             self.logger.info("👋 正在關閉系統...")
-            # 確保最後狀態是 offline
+            # 結束時設為 offline
             db.reference(f'{self.cfg.PROJECT_NAME}/status').update({
                 'state': 'offline',
                 'message': '後端程式已關閉'

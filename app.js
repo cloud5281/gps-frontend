@@ -215,22 +215,52 @@ class UIManager {
         this.els.btnDownload.addEventListener('click', () => alert("下載功能開發中..."));
     }
 
-    setSystemBusy(isBusy, customText = null, allowThresholds = false) {
+    /**
+     * 控制介面鎖定/解鎖
+     * mode: 'lock' (全鎖), 'recording' (錄製中), 'idle' (待機可用)
+     */
+    setInterfaceMode(mode, statusText, statusColor = 'gray', statusClass = 'offline') {
         const thresholdInputs = Object.values(this.els.inputs);
+        
+        // 設定狀態文字與燈號
+        this.els.statusText.innerText = statusText;
+        this.els.statusText.style.color = statusColor;
+        this.els.statusDot.className = `status-dot st-${statusClass}`;
 
-        if (isBusy) {
-            if (this.els.controlBar) this.els.controlBar.style.display = 'none'; 
+        if (mode === 'lock') {
+            // 情境 1 & 切換中：全隱藏，全鎖定
+            if (this.els.controlBar) this.els.controlBar.style.display = 'none';
             if (this.els.btnOpenSettings) this.els.btnOpenSettings.style.display = 'none';
-            thresholdInputs.forEach(input => input.disabled = !allowThresholds);
-
-            this.els.statusDot.className = "status-dot st-offline";
-            this.els.statusText.innerText = customText || "系統離線";
-            this.els.statusText.style.color = "gray";
-
-        } else {
-            if (this.els.controlBar) this.els.controlBar.style.display = ''; 
-            if (this.els.btnOpenSettings) this.els.btnOpenSettings.style.display = ''; 
+            thresholdInputs.forEach(input => input.disabled = true);
+        } 
+        else if (mode === 'recording') {
+            // 情境 3 (連線中/成功)：顯示控制列(僅停止鍵)，隱藏設定，解鎖閾值
+            if (this.els.controlBar) this.els.controlBar.style.display = '';
+            if (this.els.btnOpenSettings) this.els.btnOpenSettings.classList.add('invisible'); // 佔位但不顯示
+            
+            this.els.btnStart.innerText = "停止";
+            this.els.btnStart.classList.add('btn-stop');
+            this.els.btnUpload.classList.add('hidden');
+            this.els.btnDownload.classList.add('hidden');
+            
             thresholdInputs.forEach(input => input.disabled = false);
+            this.isRecording = true;
+        } 
+        else if (mode === 'idle') {
+            // 情境 2 (未開始/逾時)：全顯示，全解鎖
+            if (this.els.controlBar) this.els.controlBar.style.display = '';
+            if (this.els.btnOpenSettings) {
+                this.els.btnOpenSettings.style.display = '';
+                this.els.btnOpenSettings.classList.remove('invisible');
+            }
+
+            this.els.btnStart.innerText = "開始";
+            this.els.btnStart.classList.remove('btn-stop');
+            this.els.btnUpload.classList.remove('hidden');
+            this.els.btnDownload.classList.remove('hidden');
+
+            thresholdInputs.forEach(input => input.disabled = false);
+            this.isRecording = false;
         }
     }
 
@@ -253,8 +283,8 @@ class UIManager {
         btn.disabled = true;
         this.els.modal.classList.add('hidden');
         
-        // 立即顯示切換中
-        this.setSystemBusy(true, "正在更新設定...", false);
+        // 觸發前端先進入切換狀態
+        this.setInterfaceMode('lock', "專案切換中...", "gray", "offline");
 
         const updateRef = ref(this.db, `${Config.dbRootPath}/control/config_update`);
         
@@ -265,7 +295,7 @@ class UIManager {
                 if (Config.apiKey) url.searchParams.set('key', Config.apiKey);
                 url.searchParams.set('path', updateData.project_name);
                 
-                // 設定 localStorage 標記
+                // 本地標記：切換中
                 localStorage.setItem('is_switching', 'true');
                 
                 window.history.pushState({}, '', url);
@@ -275,7 +305,7 @@ class UIManager {
             alert("更新失敗: " + err);
             btn.disabled = false;
             btn.innerText = originalText;
-            this.setSystemBusy(true, "更新失敗", true);
+            this.setInterfaceMode('idle', "更新失敗", "red", "timeout");
         });
     }
 
@@ -285,33 +315,8 @@ class UIManager {
         set(cmdRef, newCmd);
     }
 
-    setButtonState(isRunning) {
-        this.isRecording = isRunning;
-        if (isRunning) {
-            this.els.btnStart.innerText = "停止";
-            this.els.btnStart.classList.add('btn-stop');
-            this.els.btnUpload.classList.add('hidden');
-            this.els.btnDownload.classList.add('hidden');
-            this.els.btnOpenSettings.classList.add('invisible');
-        } else {
-            this.els.btnStart.innerText = "開始";
-            this.els.btnStart.classList.remove('btn-stop');
-            this.els.btnUpload.classList.remove('hidden');
-            this.els.btnDownload.classList.remove('hidden');
-            this.els.btnOpenSettings.classList.remove('invisible');
-        }
-    }
-
     startClock() {
         setInterval(() => this.els.time.innerText = new Date().toLocaleTimeString('zh-TW', { hour12: false }), 1000);
-    }
-
-    updateStatusText(state, displayText) {
-        this.els.statusDot.className = `status-dot st-${state}`;
-        this.els.statusText.innerText = displayText;
-        
-        const colorMap = { 'active': '#28a745', 'connecting': '#d39e00', 'offline': 'gray', 'timeout': '#dc3545', 'stopped': 'gray' };
-        this.els.statusText.style.color = colorMap[state] || 'gray';
     }
 
     updateRealtimeData(data, isActive) {
@@ -406,56 +411,65 @@ async function main() {
         const data = snapshot.val();
         const isSwitchingLocal = localStorage.getItem('is_switching');
         
-        // --- 1. 資料為空 (新專案 或 Controller未開啟) ---
-        if (!data) {
-             // 🔥 如果本機還在切換模式，保持「切換中」，不要顯示「未連接」
-             if (isSwitchingLocal) {
-                 uiManager.setSystemBusy(true, "系統切換中...", false);
-                 
-                 // 超時檢查：如果過了60秒還在切換中，才顯示逾時
-                 // (這裡簡單做，不重複設置 timer，僅依賴下一次更新)
-                 return; 
-             } else {
-                 uiManager.setSystemBusy(true, "未連接 Controller", true);
-             }
-             uiManager.updateRealtimeData({}, false);
-             return;
+        // --- 優先檢查：是否正在切換專案 ---
+        if (isSwitchingLocal) {
+            // 如果後端狀態已變為 stopped/active，代表切換完成
+            if (data && (data.state === 'stopped' || data.state === 'active')) {
+                localStorage.removeItem('is_switching');
+            } else {
+                uiManager.setInterfaceMode('lock', "專案切換中", "gray", "offline");
+                uiManager.updateRealtimeData({}, false);
+                return;
+            }
         }
 
-        // --- 2. 有資料，檢查是否可以解除切換模式 ---
-        // 只有當狀態進入「穩定」的連接狀態時，才移除 is_switching
-        // 如果狀態還是 offline (可能後端剛初始化寫入 offline)，則繼續保持切換顯示
-        if (data.state === 'active' || data.state === 'stopped' || data.state === 'connecting') {
-             localStorage.removeItem('is_switching');
+        // --- 情境 1：資料不存在(新專案) 或 狀態為 offline ---
+        if (!data || data.state === 'offline') {
+            // 除非後端明確回傳 state: 'switching'，否則視為未連線
+            if (data && data.state === 'switching') {
+                uiManager.setInterfaceMode('lock', "專案切換中", "gray", "offline");
+            } else {
+                uiManager.setInterfaceMode('lock', "未連上 Controller", "gray", "offline");
+            }
+            uiManager.updateRealtimeData({}, false);
+            return;
         }
 
-        // --- 3. 狀態處理 ---
-        if (data.state === 'offline') {
-             const isSwitchingMsg = data.message && (data.message.includes("切換") || data.message.includes("更新") || data.message.includes("初始化"));
-             
-             if (isSwitchingMsg || isSwitchingLocal) {
-                 uiManager.setSystemBusy(true, "系統切換中...", false);
-             } else {
-                 uiManager.setSystemBusy(true, "未連接 Controller", true);
-             }
-             uiManager.updateRealtimeData({}, false);
-             return;
-        }
-
-        uiManager.setSystemBusy(false);
         backendState = data.state;
         
-        let displayText = '未連線';
-        if (data.state === 'active') displayText = '連線正常';
-        else if (data.state === 'connecting') displayText = '連線中...';
-        else if (data.state === 'timeout') displayText = '連線逾時';
-        else if (data.state === 'stopped') displayText = '已停止';
-        
-        uiManager.updateStatusText(data.state, displayText);
-        uiManager.setButtonState(data.state === 'active' || data.state === 'connecting');
-        
-        if (data.state === 'active' && lastGpsData) uiManager.updateRealtimeData(lastGpsData, true);
-        else uiManager.updateRealtimeData({}, false);
+        // --- 根據狀態分派介面行為 ---
+        switch (data.state) {
+            case 'switching': // 專案切換中 (後端設定的狀態)
+                uiManager.setInterfaceMode('lock', "專案切換中", "gray", "offline");
+                break;
+
+            case 'stopped': // 情境 2：尚未開始 (待機)
+                uiManager.setInterfaceMode('idle', "紀錄已停止，請重新開始", "gray", "stopped");
+                break;
+
+            case 'connecting': // 情境 3：連線中
+                uiManager.setInterfaceMode('recording', "連線中...", "#d39e00", "connecting");
+                break;
+
+            case 'active': // 情境 3 (連線成功)
+                uiManager.setInterfaceMode('recording', "連線成功", "#28a745", "active");
+                if (lastGpsData) uiManager.updateRealtimeData(lastGpsData, true);
+                break;
+
+            case 'timeout': // 情境 3 (連線逾時 -> 跳回狀況二)
+                // 這裡雖然顯示逾時文字，但行為模式要是 idle (可重新開始)
+                uiManager.setInterfaceMode('idle', "連線逾時，請重新開始", "#dc3545", "timeout");
+                break;
+
+            default:
+                uiManager.setInterfaceMode('lock', "未連上 Controller", "gray", "offline");
+                break;
+        }
+
+        // 如果不是 active，就清空即時數據顯示
+        if (data.state !== 'active') {
+            uiManager.updateRealtimeData({}, false);
+        }
     });
 
     onValue(ref(db, `${Config.dbRootPath}/latest`), (snapshot) => {
