@@ -241,16 +241,11 @@ class UIManager {
         }
 
         this.els.btnStart.addEventListener('click', () => this.toggleRecordingCommand());
-        
-        // 🔥 修改 1: 綁定上傳功能
         this.els.btnUpload.addEventListener('click', () => this.triggerUploadProcess());
-        
         this.els.btnDownload.addEventListener('click', () => this.downloadHistoryAsCSV());
     }
 
-    // 🔥 新增 2: 觸發檔案選擇視窗
     triggerUploadProcess() {
-        // 動態建立 input element
         const input = document.createElement('input');
         input.type = 'file';
         input.accept = '.csv';
@@ -268,14 +263,12 @@ class UIManager {
         document.body.removeChild(input);
     }
 
-    // 🔥 新增 3: 解析 CSV 並上傳至 Firebase
     parseAndUploadCSV(file) {
         const btn = this.els.btnUpload;
         const originalText = btn.innerText;
         btn.disabled = true;
         btn.innerText = "上傳中...";
 
-        // 1. 從檔名取得專案名稱 (移除 .csv)
         let projectName = file.name.replace(/\.csv$/i, "").trim();
         if (!projectName) {
             alert("❌ 檔名無效，無法作為專案名稱");
@@ -288,25 +281,20 @@ class UIManager {
         reader.onload = (e) => {
             try {
                 const text = e.target.result;
-                const lines = text.split(/\r?\n/); // 相容 Windows/Unix 換行
+                const lines = text.split(/\r?\n/); 
                 
-                if (lines.length < 2) {
-                    throw new Error("CSV 內容為空或格式錯誤");
-                }
+                if (lines.length < 2) throw new Error("CSV 內容為空或格式錯誤");
 
                 const uploadData = {};
                 let count = 0;
 
-                // 2. 解析 CSV (從第 1 行開始，跳過第 0 行 Header)
-                // 假設 Header: Timestamp,Latitude,Longitude,Concentration,Unit,Status
                 for (let i = 1; i < lines.length; i++) {
                     const line = lines[i].trim();
                     if (!line) continue;
 
                     const cols = line.split(',');
-                    if (cols.length < 4) continue; // 至少要有時間、經緯度、濃度
+                    if (cols.length < 4) continue;
 
-                    // 對應欄位
                     const record = {
                         timestamp: cols[0].trim(),
                         lat: parseFloat(cols[1]),
@@ -316,36 +304,49 @@ class UIManager {
                         status: cols[5] ? cols[5].trim() : ""
                     };
 
-                    // 簡單驗證數值
                     if (!isNaN(record.lat) && !isNaN(record.lon)) {
-                        // 使用時間戳記+索引當作 key，確保唯一性
                         const key = `record_${Date.now()}_${i}`;
                         uploadData[key] = record;
                         count++;
                     }
                 }
 
-                if (count === 0) {
-                    throw new Error("找不到有效的數據行");
-                }
+                if (count === 0) throw new Error("找不到有效的數據行");
 
-                // 3. 上傳至 Firebase
                 const targetPath = `${projectName}/history`;
                 const historyRef = ref(this.db, targetPath);
 
                 set(historyRef, uploadData)
                     .then(() => {
-                        alert(`✅ 上傳成功！\n\n專案名稱: ${projectName}\n成功匯入: ${count} 筆資料`);
-                        // 如果上傳的是當前專案，重新整理頁面以顯示
-                        if (projectName === Config.dbRootPath) {
-                             location.reload();
+                        // 🔥🔥 修改處：上傳成功後，自動切換專案 🔥🔥
+                        const isDifferentProject = (projectName !== Config.dbRootPath);
+
+                        if (isDifferentProject) {
+                            alert(`✅ 上傳成功！共 ${count} 筆資料。\n\n系統將自動切換至新專案: ${projectName}`);
+                            
+                            // 1. 鎖定介面
+                            btn.innerText = "切換中...";
+                            this.setInterfaceMode('switching', "專案切換中...", "gray", "offline");
+
+                            // 2. 通知後端切換 (寫入 control/config_update)
+                            const updateRef = ref(this.db, `${Config.dbRootPath}/control/config_update`);
+                            set(updateRef, { project_name: projectName }).then(() => {
+                                // 3. 前端跳轉
+                                const url = new URL(window.location.href);
+                                url.searchParams.set('path', projectName);
+                                localStorage.setItem('is_switching', 'true');
+                                window.history.pushState({}, '', url);
+                                location.reload();
+                            });
+                        } else {
+                            // 如果是同專案，直接重整顯示新資料
+                            alert(`✅ 上傳成功！共 ${count} 筆資料。\n\n頁面將重新整理以顯示數據。`);
+                            location.reload();
                         }
                     })
                     .catch((err) => {
                         console.error(err);
                         alert("❌ 上傳至 Firebase 失敗: " + err.message);
-                    })
-                    .finally(() => {
                         btn.disabled = false;
                         btn.innerText = originalText;
                     });
