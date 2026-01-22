@@ -51,7 +51,6 @@ class MapManager {
             }) 
         }).addTo(this.map);
 
-        this.pathLine = L.polyline([], {color: 'blue', weight: 4}).addTo(this.map);
         this.historyLayer = L.layerGroup().addTo(this.map);
         this.coordsArray = [];
     }
@@ -65,11 +64,13 @@ class MapManager {
     addHistoryPoint(data, getColorFn) {
         const pos = [data.lat, data.lon];
         this.coordsArray.push(pos);
-        this.pathLine.setLatLngs(this.coordsArray);
 
         const color = getColorFn(data.conc);
         const circle = L.circleMarker(pos, {
-            color: 'white', fillColor: color, fillOpacity: 0.9, weight: 1, radius: 8
+            stroke: false,
+            fillColor: color, 
+            fillOpacity: 0.9, 
+            radius: 5
         });
         circle.concValue = data.conc;
 
@@ -90,15 +91,6 @@ class MapManager {
                 layer.setStyle({ fillColor: getColorFn(layer.concValue) });
             }
         });
-    }
-
-    fitToPath() {
-        if (this.coordsArray.length > 0) {
-            const bounds = this.pathLine.getBounds();
-            if (bounds.isValid()) {
-                this.map.fitBounds(bounds, { padding: [50, 50] }); 
-            }
-        }
     }
 }
 
