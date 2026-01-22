@@ -49,7 +49,7 @@ class MapManager {
             }) 
         }).addTo(this.map);
 
-        // 🔥🔥🔥 修改 1：移除 .addTo(this.map)，這樣線就不會顯示，但物件還在以便計算範圍 🔥🔥🔥
+        // 移除連線顯示 (但保留物件)
         this.pathLine = L.polyline([], {color: 'blue', weight: 4}); 
         
         this.historyLayer = L.layerGroup().addTo(this.map);
@@ -59,6 +59,7 @@ class MapManager {
     updateCurrentPosition(lat, lon, autoCenter) {
         const pos = [lat, lon];
         this.marker.setLatLng(pos);
+        // 如果 autoCenter 為 true，地圖會跟隨移動
         if (autoCenter) this.map.panTo(pos);
     }
 
@@ -69,11 +70,11 @@ class MapManager {
 
         const color = getColorFn(data.conc);
         
-        // 🔥🔥🔥 修改 2：設定 stroke: false (移除白框) 🔥🔥🔥
+        // 移除外框線 (stroke: false)
         const circle = L.circleMarker(pos, {
-            stroke: false,       // 不畫邊框
+            stroke: false,
             fillColor: color,
-            fillOpacity: 0.9,    // 保持填充透明度
+            fillOpacity: 0.9,
             radius: 8
         });
         circle.concValue = data.conc;
@@ -132,7 +133,10 @@ class UIManager {
             conc: document.getElementById('concentration'),
             statusDot: document.getElementById('status-dot'),
             statusText: document.getElementById('connection-text'),
+            
+            // 這裡是自動跟隨的 Checkbox
             autoCenter: document.getElementById('autoCenter'),
+            
             modal: document.getElementById('settings-modal'),
             btnOpenSettings: document.getElementById('btn-open-settings'),
             btnCloseModal: document.getElementById('btn-close-modal'),
@@ -164,6 +168,11 @@ class UIManager {
         this.els.inputs.a.value = this.thresholds.a;
         this.els.inputs.b.value = this.thresholds.b;
         this.els.inputs.c.value = this.thresholds.c;
+
+        // 🔥🔥🔥 核心修改：強制預設開啟自動跟隨 🔥🔥🔥
+        if (this.els.autoCenter) {
+            this.els.autoCenter.checked = true;
+        }
     }
 
     syncConfigFromBackend(data) {
@@ -708,7 +717,10 @@ async function main() {
         const data = snapshot.val();
         if (data && data.lat) {
             lastGpsData = data;
-            mapManager.updateCurrentPosition(data.lat, data.lon, document.getElementById('autoCenter').checked);
+            // 🔥🔥🔥 這裡會讀取 autoCenter Checkbox 的狀態，而我們已經預設它為 true 🔥🔥🔥
+            const shouldCenter = document.getElementById('autoCenter') ? document.getElementById('autoCenter').checked : true;
+            mapManager.updateCurrentPosition(data.lat, data.lon, shouldCenter);
+            
             if (backendState === 'active') uiManager.updateRealtimeData(data, true);
         }
     });
