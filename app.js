@@ -1,5 +1,6 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-import { getDatabase, ref, onValue, onChildAdded, set, get } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+// 🔥 修改 1：引入 update 方法
+import { getDatabase, ref, onValue, onChildAdded, set, get, update } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
 
 /**
  * 1. 設定管理
@@ -49,7 +50,6 @@ class MapManager {
             }) 
         }).addTo(this.map);
 
-        // 移除連線顯示 (但保留物件)
         this.pathLine = L.polyline([], {color: 'blue', weight: 4}); 
         
         this.historyLayer = L.layerGroup().addTo(this.map);
@@ -59,7 +59,6 @@ class MapManager {
     updateCurrentPosition(lat, lon, autoCenter) {
         const pos = [lat, lon];
         this.marker.setLatLng(pos);
-        // 如果 autoCenter 為 true，地圖會跟隨移動
         if (autoCenter) this.map.panTo(pos);
     }
 
@@ -70,7 +69,6 @@ class MapManager {
 
         const color = getColorFn(data.conc);
         
-        // 移除外框線 (stroke: false)
         const circle = L.circleMarker(pos, {
             stroke: false,
             fillColor: color,
@@ -133,10 +131,7 @@ class UIManager {
             conc: document.getElementById('concentration'),
             statusDot: document.getElementById('status-dot'),
             statusText: document.getElementById('connection-text'),
-            
-            // 這裡是自動跟隨的 Checkbox
             autoCenter: document.getElementById('autoCenter'),
-            
             modal: document.getElementById('settings-modal'),
             btnOpenSettings: document.getElementById('btn-open-settings'),
             btnCloseModal: document.getElementById('btn-close-modal'),
@@ -169,7 +164,6 @@ class UIManager {
         this.els.inputs.b.value = this.thresholds.b;
         this.els.inputs.c.value = this.thresholds.c;
 
-        // 🔥🔥🔥 核心修改：強制預設開啟自動跟隨 🔥🔥🔥
         if (this.els.autoCenter) {
             this.els.autoCenter.checked = true;
         }
@@ -312,6 +306,8 @@ class UIManager {
 
                 const uploadData = {};
                 let count = 0;
+                // 🔥 修改 2：記錄最後一筆資料
+                let lastRecord = null;
 
                 for (let i = 1; i < lines.length; i++) {
                     const line = lines[i].trim();
@@ -332,16 +328,24 @@ class UIManager {
                     if (!isNaN(record.lat) && !isNaN(record.lon)) {
                         const key = `record_${Date.now()}_${i}`;
                         uploadData[key] = record;
+                        lastRecord = record; // 更新最後一筆
                         count++;
                     }
                 }
 
                 if (count === 0) throw new Error("找不到有效的數據行");
 
-                const targetPath = `${projectName}/history`;
-                const historyRef = ref(this.db, targetPath);
+                // 🔥 修改 3：準備批量更新物件
+                const updates = {};
+                updates[`${projectName}/history`] = uploadData;
+                
+                // 如果有資料，同步更新 latest 節點，解決重整後地圖亂跳的問題
+                if (lastRecord) {
+                    updates[`${projectName}/latest`] = lastRecord;
+                }
 
-                set(historyRef, uploadData)
+                // 使用 update 一次性寫入
+                update(ref(this.db), updates)
                     .then(() => {
                         const isDifferentProject = (projectName !== Config.dbRootPath);
 
@@ -717,10 +721,7 @@ async function main() {
         const data = snapshot.val();
         if (data && data.lat) {
             lastGpsData = data;
-            // 🔥🔥🔥 這裡會讀取 autoCenter Checkbox 的狀態，而我們已經預設它為 true 🔥🔥🔥
-            const shouldCenter = document.getElementById('autoCenter') ? document.getElementById('autoCenter').checked : true;
-            mapManager.updateCurrentPosition(data.lat, data.lon, shouldCenter);
-            
+            mapManager.updateCurrentPosition(data.lat, data.lon, document.getElementById('autoCenter').checked);
             if (backendState === 'active') uiManager.updateRealtimeData(data, true);
         }
     });
