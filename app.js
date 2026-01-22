@@ -1,5 +1,6 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-import { getDatabase, ref, onValue, onChildAdded, set, get } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+// 🔥 修改 1：引入 update 方法
+import { getDatabase, ref, onValue, onChildAdded, set, get, update } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
 
 /**
  * 1. 設定管理
@@ -49,7 +50,6 @@ class MapManager {
             }) 
         }).addTo(this.map);
 
-        // 🔥🔥🔥 修改 1：移除 .addTo(this.map)，這樣線就不會顯示，但物件還在以便計算範圍 🔥🔥🔥
         this.pathLine = L.polyline([], {color: 'blue', weight: 4}); 
         
         this.historyLayer = L.layerGroup().addTo(this.map);
@@ -69,11 +69,10 @@ class MapManager {
 
         const color = getColorFn(data.conc);
         
-        // 🔥🔥🔥 修改 2：設定 stroke: false (移除白框) 🔥🔥🔥
         const circle = L.circleMarker(pos, {
-            stroke: false,       // 不畫邊框
+            stroke: false,
             fillColor: color,
-            fillOpacity: 0.9,    // 保持填充透明度
+            fillOpacity: 0.9,
             radius: 8
         });
         circle.concValue = data.conc;
@@ -164,6 +163,10 @@ class UIManager {
         this.els.inputs.a.value = this.thresholds.a;
         this.els.inputs.b.value = this.thresholds.b;
         this.els.inputs.c.value = this.thresholds.c;
+
+        if (this.els.autoCenter) {
+            this.els.autoCenter.checked = true;
+        }
     }
 
     syncConfigFromBackend(data) {
@@ -303,6 +306,8 @@ class UIManager {
 
                 const uploadData = {};
                 let count = 0;
+                // 🔥 修改 2：記錄最後一筆資料
+                let lastRecord = null;
 
                 for (let i = 1; i < lines.length; i++) {
                     const line = lines[i].trim();
@@ -323,16 +328,24 @@ class UIManager {
                     if (!isNaN(record.lat) && !isNaN(record.lon)) {
                         const key = `record_${Date.now()}_${i}`;
                         uploadData[key] = record;
+                        lastRecord = record; // 更新最後一筆
                         count++;
                     }
                 }
 
                 if (count === 0) throw new Error("找不到有效的數據行");
 
-                const targetPath = `${projectName}/history`;
-                const historyRef = ref(this.db, targetPath);
+                // 🔥 修改 3：準備批量更新物件
+                const updates = {};
+                updates[`${projectName}/history`] = uploadData;
+                
+                // 如果有資料，同步更新 latest 節點，解決重整後地圖亂跳的問題
+                if (lastRecord) {
+                    updates[`${projectName}/latest`] = lastRecord;
+                }
 
-                set(historyRef, uploadData)
+                // 使用 update 一次性寫入
+                update(ref(this.db), updates)
                     .then(() => {
                         const isDifferentProject = (projectName !== Config.dbRootPath);
 
