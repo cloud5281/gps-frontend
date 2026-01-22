@@ -100,7 +100,10 @@ class UIManager {
         this.isRecording = false;
 
         this.initDOM();
+        
+        // 預設為 Offline 模式 (隱藏開始，顯示上傳/下載)
         this.setInterfaceMode('offline', "未連接 Controller", "gray", "offline");
+
         this.bindEvents();
         this.startClock();
     }
@@ -318,28 +321,23 @@ class UIManager {
 
                 set(historyRef, uploadData)
                     .then(() => {
-                        // 🔥🔥 修改處：上傳成功後，自動切換專案 🔥🔥
                         const isDifferentProject = (projectName !== Config.dbRootPath);
 
                         if (isDifferentProject) {
                             alert(`✅ 上傳成功！共 ${count} 筆資料。\n\n系統將自動切換至新專案: ${projectName}`);
                             
-                            // 1. 鎖定介面
-                            btn.innerText = "切換中...";
-                            this.setInterfaceMode('switching', "專案切換中...", "gray", "offline");
-
-                            // 2. 通知後端切換 (寫入 control/config_update)
+                            // 通知後端 (如果後端有開，它會跟上)
                             const updateRef = ref(this.db, `${Config.dbRootPath}/control/config_update`);
-                            set(updateRef, { project_name: projectName }).then(() => {
-                                // 3. 前端跳轉
-                                const url = new URL(window.location.href);
-                                url.searchParams.set('path', projectName);
-                                localStorage.setItem('is_switching', 'true');
-                                window.history.pushState({}, '', url);
-                                location.reload();
-                            });
+                            set(updateRef, { project_name: projectName });
+
+                            // 🔥🔥🔥 核心修改：不等待，直接跳轉 🔥🔥🔥
+                            // 我們不設 'is_switching' 鎖，這樣就算後端沒開，前端也能正常顯示資料
+                            const url = new URL(window.location.href);
+                            url.searchParams.set('path', projectName);
+                            window.history.pushState({}, '', url);
+                            location.reload();
+                            
                         } else {
-                            // 如果是同專案，直接重整顯示新資料
                             alert(`✅ 上傳成功！共 ${count} 筆資料。\n\n頁面將重新整理以顯示數據。`);
                             location.reload();
                         }
