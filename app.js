@@ -24,7 +24,6 @@ const Config = (() => {
         gpsPort: "",
         concUnit: "",
         dbURL: urlParams.get('db') || null,
-        // 🔥🔥 修改 1：新增統一的縮放比例設定 (建議 17) 🔥🔥
         ZOOM_LEVEL: 17, 
         COLORS: {
             GREEN: '#28a745', YELLOW: '#ffc107', ORANGE: '#fd7e14', RED: '#dc3545'
@@ -37,7 +36,6 @@ const Config = (() => {
  */
 class MapManager {
     constructor() {
-        // 🔥🔥 修改 2：使用 Config.ZOOM_LEVEL 初始化 🔥🔥
         this.map = L.map('map').setView([25.0330, 121.5654], Config.ZOOM_LEVEL);
         
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -51,6 +49,9 @@ class MapManager {
             }) 
         }).addTo(this.map);
 
+        // 🔥🔥🔥 修改 1：移除 .addTo(this.map)，這樣線就不會顯示，但物件還在以便計算範圍 🔥🔥🔥
+        this.pathLine = L.polyline([], {color: 'blue', weight: 4}); 
+        
         this.historyLayer = L.layerGroup().addTo(this.map);
         this.coordsArray = [];
     }
@@ -64,13 +65,16 @@ class MapManager {
     addHistoryPoint(data, getColorFn) {
         const pos = [data.lat, data.lon];
         this.coordsArray.push(pos);
+        this.pathLine.setLatLngs(this.coordsArray);
 
         const color = getColorFn(data.conc);
+        
+        // 🔥🔥🔥 修改 2：設定 stroke: false (移除白框) 🔥🔥🔥
         const circle = L.circleMarker(pos, {
-            stroke: false,
-            fillColor: color, 
-            fillOpacity: 0.9, 
-            radius: 5
+            stroke: false,       // 不畫邊框
+            fillColor: color,
+            fillOpacity: 0.9,    // 保持填充透明度
+            radius: 8
         });
         circle.concValue = data.conc;
 
@@ -91,6 +95,15 @@ class MapManager {
                 layer.setStyle({ fillColor: getColorFn(layer.concValue) });
             }
         });
+    }
+
+    fitToPath() {
+        if (this.coordsArray.length > 0) {
+            const bounds = this.pathLine.getBounds();
+            if (bounds.isValid()) {
+                this.map.fitBounds(bounds, { padding: [50, 50] }); 
+            }
+        }
     }
 }
 
@@ -625,7 +638,6 @@ async function main() {
 
                 if (lastRecord && lastRecord.lat && lastRecord.lon) {
                     mapManager.updateCurrentPosition(lastRecord.lat, lastRecord.lon, true);
-                    // 🔥🔥 修改 3：統一使用 Config.ZOOM_LEVEL 🔥🔥
                     mapManager.map.setZoom(Config.ZOOM_LEVEL);
                 }
             }
