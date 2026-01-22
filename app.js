@@ -96,12 +96,13 @@ class UIManager {
     constructor(mapManager, db) {
         this.mapManager = mapManager;
         this.db = db;
+        // 預設值，之後會被 Firebase 覆蓋
         this.thresholds = { a: 50, b: 100, c: 150 };
         this.isRecording = false;
 
         this.initDOM();
         this.bindEvents();
-        this.loadThresholdSettings(); 
+        // 移除 loadThresholdSettings (不再讀取 localStorage)
         this.startClock();
     }
 
@@ -147,6 +148,8 @@ class UIManager {
         };
 
         this.els.path.innerText = Config.dbRootPath;
+        // 初始化顯示預設值
+        this.updateThresholdDisplay();
     }
 
     syncConfigFromBackend(data) {
@@ -160,6 +163,38 @@ class UIManager {
         if (!this.els.modal.classList.contains('hidden')) {
             this.fillSettingsInputs();
         }
+    }
+
+    // 🔥 新增：從 Firebase 同步閾值
+    syncThresholdsFromBackend(data) {
+        if (data) {
+            this.thresholds = {
+                a: parseFloat(data.a),
+                b: parseFloat(data.b),
+                c: parseFloat(data.c)
+            };
+        } else {
+            // 如果 Firebase 沒資料，維持預設值 (50, 100, 150)
+            this.thresholds = { a: 50, b: 100, c: 150 };
+        }
+        
+        // 更新輸入框與顯示文字 (避免正在輸入時被覆蓋，這裡簡單處理直接覆蓋確保同步)
+        if (document.activeElement !== this.els.inputs.a && 
+            document.activeElement !== this.els.inputs.b && 
+            document.activeElement !== this.els.inputs.c) {
+            this.els.inputs.a.value = this.thresholds.a;
+            this.els.inputs.b.value = this.thresholds.b;
+            this.els.inputs.c.value = this.thresholds.c;
+        }
+
+        this.updateThresholdDisplay();
+        this.mapManager.refreshColors(this.getColor.bind(this));
+    }
+
+    updateThresholdDisplay() {
+        this.els.displays.a.innerText = this.thresholds.a;
+        this.els.displays.b.innerText = this.thresholds.b;
+        this.els.displays.c.innerText = this.thresholds.c;
     }
 
     fillSettingsInputs() {
@@ -184,14 +219,16 @@ class UIManager {
             this.saveBackendSettings();
         });
 
+        // 閾值輸入監聽：按下 Enter 或 失去焦點(Blur) 時存檔
         Object.values(this.els.inputs).forEach(input => {
-            input.addEventListener('keydown', (e) => {
-                if (e.key === 'Enter') {
-                    e.preventDefault();
-                    input.blur();
-                    this.saveThresholdSettings();
-                }
-            });
+            const saveHandler = (e) => {
+                if (e.type === 'keydown' && e.key !== 'Enter') return;
+                e.preventDefault();
+                input.blur();
+                this.saveThresholdSettings(); // 存到 Firebase
+            };
+            input.addEventListener('keydown', saveHandler);
+            input.addEventListener('blur', () => this.saveThresholdSettings());
         });
 
         const portInput = this.els.backendInputs.port;
@@ -230,7 +267,7 @@ class UIManager {
         else if (mode === 'offline') {
             if (this.els.controlBar) this.els.controlBar.style.display = 'none';
             if (this.els.btnOpenSettings) this.els.btnOpenSettings.style.display = 'none';
-            thresholdInputs.forEach(input => input.disabled = false); 
+            thresholdInputs.forEach(input => input.disabled = false); // 離線仍可改閾值
         }
         else if (mode === 'recording') {
             if (this.els.controlBar) this.els.controlBar.style.display = '';
@@ -278,17 +315,13 @@ class UIManager {
         const originalText = btn.innerText;
         btn.disabled = true;
 
-        // 🔥 判斷：專案名稱是否有變？
         const isProjectChanged = (updateData.project_name && updateData.project_name !== Config.dbRootPath);
 
         if (isProjectChanged) {
-            // Case 1: 專案變更 -> 執行完整的鎖定與跳轉流程
             btn.innerText = "切換中...";
             this.setInterfaceMode('switching', "專案切換中...", "gray", "offline");
         } else {
-            // Case 2: 僅參數變更 -> 默默更新，不鎖定介面
             btn.innerText = "更新中...";
-            // 這裡不調用 setInterfaceMode，保持原本介面狀態
         }
 
         const updateRef = ref(this.db, `${Config.dbRootPath}/control/config_update`);
@@ -304,7 +337,6 @@ class UIManager {
                 window.history.pushState({}, '', url);
                 location.reload(); 
             } else {
-                // 🔥 Case 2 成功處理：顯示成功並恢復按鈕
                 btn.innerText = "✅ 已更新";
                 setTimeout(() => {
                     this.els.modal.classList.add('hidden');
@@ -354,16 +386,7 @@ class UIManager {
         return Config.COLORS.RED;
     }
 
-    loadThresholdSettings() {
-        const savedA = localStorage.getItem('th_a');
-        const savedB = localStorage.getItem('th_b');
-        const savedC = localStorage.getItem('th_c');
-        if (savedA) this.els.inputs.a.value = savedA;
-        if (savedB) this.els.inputs.b.value = savedB;
-        if (savedC) this.els.inputs.c.value = savedC;
-        this.saveThresholdSettings(true); 
-    }
-
+    // 🔥 修改：存到 Firebase 而不是 LocalStorage
     saveThresholdSettings(isSilent = false) {
         const { a: elA, b: elB, c: elC } = this.els.inputs;
         const msgBox = this.els.msgBox;
@@ -383,19 +406,24 @@ class UIManager {
             msgBox.style.color = "red";
             return;
         }
-        this.thresholds = { a: valA, b: valB, c: valC };
-        this.els.displays.a.innerText = valA;
-        this.els.displays.b.innerText = valB;
-        this.els.displays.c.innerText = valC;
-        localStorage.setItem('th_a', valA);
-        localStorage.setItem('th_b', valB);
-        localStorage.setItem('th_c', valC);
-        this.mapManager.refreshColors(this.getColor.bind(this));
-        if (!isSilent) {
-            msgBox.innerText = "✅ 閾值已更新";
-            msgBox.style.color = "green";
-            setTimeout(() => msgBox.innerText = "", 2000);
-        }
+
+        // 寫入 Firebase
+        const thRef = ref(this.db, `${Config.dbRootPath}/settings/thresholds`);
+        set(thRef, { a: valA, b: valB, c: valC })
+            .then(() => {
+                if (!isSilent) {
+                    msgBox.innerText = "✅ 設定已儲存至雲端";
+                    msgBox.style.color = "green";
+                    setTimeout(() => msgBox.innerText = "", 2000);
+                }
+            })
+            .catch((err) => {
+                console.error(err);
+                if (!isSilent) {
+                    msgBox.innerText = "❌ 儲存失敗";
+                    msgBox.style.color = "red";
+                }
+            });
     }
 }
 
@@ -416,10 +444,17 @@ async function main() {
     let backendState = 'offline';
     let lastGpsData = null;
 
+    // 監聽後端 Config
     onValue(ref(db, `${Config.dbRootPath}/settings/current_config`), (snapshot) => {
         if (snapshot.val()) uiManager.syncConfigFromBackend(snapshot.val());
     });
 
+    // 🔥 新增：監聽閾值設定 (當 Firebase 變動時，自動同步到網頁)
+    onValue(ref(db, `${Config.dbRootPath}/settings/thresholds`), (snapshot) => {
+        uiManager.syncThresholdsFromBackend(snapshot.val());
+    });
+
+    // 監聽狀態
     onValue(ref(db, `${Config.dbRootPath}/status`), (snapshot) => {
         const data = snapshot.val();
         const isSwitchingLocal = localStorage.getItem('is_switching');
