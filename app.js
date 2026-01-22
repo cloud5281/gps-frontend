@@ -631,12 +631,30 @@ async function main() {
 
     // 🔥🔥🔥 核心：檢查是否需要自動置中 (來自上傳動作) 🔥🔥🔥
     onValue(ref(db, `${Config.dbRootPath}/history`), (snapshot) => {
+        // 1. 檢查是否有標記 (代表剛上傳完) 且資料存在
         if (localStorage.getItem('should_fit_bounds') === 'true' && snapshot.exists()) {
-            // 給予一點緩衝時間讓 MapManager 畫完點
-            setTimeout(() => {
-                mapManager.fitToPath();
-                localStorage.removeItem('should_fit_bounds');
-            }, 1000);
+            
+            const data = snapshot.val();
+            // 2. 取得所有資料的 key 並排序 (確保是時間順序)
+            const keys = Object.keys(data).sort();
+            
+            if (keys.length > 0) {
+                // 3. 抓出最後一筆資料
+                const lastKey = keys[keys.length - 1];
+                const lastRecord = data[lastKey];
+
+                // 4. 如果座標有效，直接將人偶移過去並置中地圖
+                if (lastRecord && lastRecord.lat && lastRecord.lon) {
+                    // updateCurrentPosition(lat, lon, autoCenter=true)
+                    mapManager.updateCurrentPosition(lastRecord.lat, lastRecord.lon, true);
+                    
+                    // 5. 稍微縮放一下視野 (設定 zoom level 為 16)
+                    mapManager.map.setZoom(16);
+                }
+            }
+            
+            // 6. 清除標記，避免下次隨便重整也亂跳
+            localStorage.removeItem('should_fit_bounds');
         }
     });
 
