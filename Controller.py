@@ -6,7 +6,7 @@ import webbrowser
 import json
 import os
 
-from firebase_admin import credentials, db
+from firebase_admin import credentials, db, exceptions
 from Config import Config
 from Process import RunProcess
 
@@ -53,7 +53,6 @@ class SystemController:
             self.logger.error(f"❌ Firebase 連線失敗: {e}")
 
     def _push_current_config_to_firebase(self):
-        """將目前參數推送到雲端，供前端讀取"""
         try:
             data = {
                 "db_id": self.cfg.DB_ID,
@@ -67,19 +66,36 @@ class SystemController:
         except Exception as e:
             self.logger.warning(f"同步參數失敗: {e}")
 
+    # 🔥🔥 修改處：加入重試機制，防止 SSL 報錯崩潰 🔥🔥
     def _setup_listeners(self):
         self._cleanup_listeners()
-        self.logger.info(f"👂 開始監聽專案路徑: {self.cfg.PROJECT_NAME}")
+        self.logger.info(f"👂 準備監聽專案路徑: {self.cfg.PROJECT_NAME}")
 
-        # 監聽指令
-        cmd_ref = db.reference(f'{self.cfg.PROJECT_NAME}/control/command')
-        cmd_ref.set("") 
-        self.cmd_listener = cmd_ref.listen(self._command_handler)
+        max_retries = 3
+        retry_delay = 2
 
-        # 監聽參數修改
-        config_ref = db.reference(f'{self.cfg.PROJECT_NAME}/control/config_update')
-        config_ref.delete()
-        self.config_listener = config_ref.listen(self._handle_config_update)
+        for attempt in range(max_retries):
+            try:
+                # 監聽指令
+                cmd_ref = db.reference(f'{self.cfg.PROJECT_NAME}/control/command')
+                cmd_ref.set("") 
+                self.cmd_listener = cmd_ref.listen(self._command_handler)
+
+                # 監聽參數修改
+                config_ref = db.reference(f'{self.cfg.PROJECT_NAME}/control/config_update')
+                config_ref.delete()
+                self.config_listener = config_ref.listen(self._handle_config_update)
+                
+                self.logger.info("✅ 監聽器啟動成功")
+                return # 成功就跳出函式
+
+            except Exception as e:
+                self.logger.warning(f"⚠️ 監聽器啟動失敗 (嘗試 {attempt + 1}/{max_retries}): {e}")
+                self._cleanup_listeners() # 失敗時先清空，避免殘留
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay) # 等待一下讓 SSL 連線釋放
+                else:
+                    self.logger.error("❌ 監聽器啟動失敗，已達最大重試次數。請檢查網路或重啟程式。")
 
     def _cleanup_listeners(self):
         try:
@@ -97,7 +113,6 @@ class SystemController:
         new_settings = event.data
         self.logger.info(f"⚙️ 收到參數更新請求: {new_settings}")
         
-        # 開新執行緒處理切換，避免卡死
         threading.Thread(target=self._perform_project_switch, args=(new_settings,)).start()
 
     def _perform_project_switch(self, new_settings):
@@ -105,7 +120,6 @@ class SystemController:
         new_project_name = new_settings.get('project_name', old_project_name)
 
         try:
-            # 1. 處理狀態 (如果專案名稱有變，才進行切換狀態通知)
             if old_project_name != new_project_name:
                 self.logger.info(f"👋 正在將舊專案 ({old_project_name}) 標記為離線...")
                 db.reference(f'{old_project_name}/status').set({
@@ -119,10 +133,8 @@ class SystemController:
                     'message': '專案切換初始化中...'
                 })
             else:
-                # 🔥 專案沒變，默默更新即可，不要改狀態為 switching
                 self.logger.info(f"📝 專案名稱未變，僅更新參數配置...")
 
-            # 2. 更新本地設定檔
             with open(self.config_file, 'r', encoding='utf-8') as f:
                 config_data = json.load(f)
 
@@ -148,25 +160,22 @@ class SystemController:
                 self.logger.info(f"🔄 專案變更，正在重啟監聽器...")
                 if self.process and self.process.running:
                     self.stop_process()
+                
+                # 🔥 這裡加入一點延遲，確保舊連線釋放
+                time.sleep(1.0)
                 self._setup_listeners()
                 
                 time.sleep(1.0) 
-                # 完成切換，將狀態設為 stopped
                 if not (self.process and self.process.running):
                     db.reference(f'{new_project_name}/status').set({
                         'state': 'stopped',
                         'message': '就緒'
                     })
             else:
-                # 🔥 同專案：如果有跑 Process，通常需要重啟才能套用新 IP/Port
-                # 重啟會導致短暫的 stopped -> connecting，這是正常的
                 if self.process and self.process.running:
                     self.logger.info("🔄 偵測到參數變更，重啟子程序以套用設定...")
                     self.stop_process()
                     self.start_process()
-                else:
-                    # 如果沒在跑，就只是更新了設定，不用做動作，保持 status 不變 (應該是 stopped)
-                    pass
 
             self._push_current_config_to_firebase()
 
@@ -177,7 +186,6 @@ class SystemController:
         if event.data is None or event.data == "": return
         command = str(event.data).lower()
         
-        # ⚠️ 清空指令，確保下次點擊有效
         if command in ['start', 'stop']:
             try:
                 db.reference(f'{self.cfg.PROJECT_NAME}/control/command').set("")
@@ -254,7 +262,6 @@ class SystemController:
         except KeyboardInterrupt:
             self.logger.info("👋 正在關閉系統...")
             
-            # 🔥 確保關閉時寫入 offline
             if self.process:
                 self.stop_process() 
             

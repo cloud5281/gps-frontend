@@ -1,5 +1,4 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-// 🔥 修改處 1：引入 get 方法
 import { getDatabase, ref, onValue, onChildAdded, set, get } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
 
 /**
@@ -101,10 +100,7 @@ class UIManager {
         this.isRecording = false;
 
         this.initDOM();
-        
-        // 初始化介面狀態
         this.setInterfaceMode('offline', "未連接 Controller", "gray", "offline");
-
         this.bindEvents();
         this.startClock();
     }
@@ -112,7 +108,6 @@ class UIManager {
     initDOM() {
         this.els = {
             controlBar: document.getElementById('bottom-control-bar'),
-            
             time: document.getElementById('time'),
             path: document.getElementById('currentPath'),
             coords: document.getElementById('coords'),
@@ -120,23 +115,19 @@ class UIManager {
             statusDot: document.getElementById('status-dot'),
             statusText: document.getElementById('connection-text'),
             autoCenter: document.getElementById('autoCenter'),
-            
             modal: document.getElementById('settings-modal'),
             btnOpenSettings: document.getElementById('btn-open-settings'),
             btnCloseModal: document.getElementById('btn-close-modal'),
             btnSaveBackend: document.getElementById('btn-save-backend'),
-
             backendInputs: {
                 project: document.getElementById('set-project-id'),
                 ip: document.getElementById('set-gps-ip'),
                 port: document.getElementById('set-gps-port'),
                 unit: document.getElementById('set-conc-unit')
             },
-
             btnStart: document.getElementById('btn-start'),
             btnUpload: document.getElementById('btn-upload'),
             btnDownload: document.getElementById('btn-download'),
-
             inputs: {
                 a: document.getElementById('val-a'),
                 b: document.getElementById('val-b'),
@@ -250,13 +241,125 @@ class UIManager {
         }
 
         this.els.btnStart.addEventListener('click', () => this.toggleRecordingCommand());
-        this.els.btnUpload.addEventListener('click', () => alert(`準備上傳至 IP: ${Config.gpsIp} Port: ${Config.gpsPort}`));
         
-        // 🔥 修改處 2：綁定下載功能
+        // 🔥 修改 1: 綁定上傳功能
+        this.els.btnUpload.addEventListener('click', () => this.triggerUploadProcess());
+        
         this.els.btnDownload.addEventListener('click', () => this.downloadHistoryAsCSV());
     }
 
-    // 🔥 修改處 3：新增 CSV 下載邏輯
+    // 🔥 新增 2: 觸發檔案選擇視窗
+    triggerUploadProcess() {
+        // 動態建立 input element
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.csv';
+        input.style.display = 'none';
+        
+        input.onchange = (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                this.parseAndUploadCSV(file);
+            }
+        };
+        
+        document.body.appendChild(input);
+        input.click();
+        document.body.removeChild(input);
+    }
+
+    // 🔥 新增 3: 解析 CSV 並上傳至 Firebase
+    parseAndUploadCSV(file) {
+        const btn = this.els.btnUpload;
+        const originalText = btn.innerText;
+        btn.disabled = true;
+        btn.innerText = "上傳中...";
+
+        // 1. 從檔名取得專案名稱 (移除 .csv)
+        let projectName = file.name.replace(/\.csv$/i, "").trim();
+        if (!projectName) {
+            alert("❌ 檔名無效，無法作為專案名稱");
+            btn.disabled = false;
+            btn.innerText = originalText;
+            return;
+        }
+
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            try {
+                const text = e.target.result;
+                const lines = text.split(/\r?\n/); // 相容 Windows/Unix 換行
+                
+                if (lines.length < 2) {
+                    throw new Error("CSV 內容為空或格式錯誤");
+                }
+
+                const uploadData = {};
+                let count = 0;
+
+                // 2. 解析 CSV (從第 1 行開始，跳過第 0 行 Header)
+                // 假設 Header: Timestamp,Latitude,Longitude,Concentration,Unit,Status
+                for (let i = 1; i < lines.length; i++) {
+                    const line = lines[i].trim();
+                    if (!line) continue;
+
+                    const cols = line.split(',');
+                    if (cols.length < 4) continue; // 至少要有時間、經緯度、濃度
+
+                    // 對應欄位
+                    const record = {
+                        timestamp: cols[0].trim(),
+                        lat: parseFloat(cols[1]),
+                        lon: parseFloat(cols[2]),
+                        conc: parseFloat(cols[3]),
+                        conc_unit: cols[4] ? cols[4].trim() : "",
+                        status: cols[5] ? cols[5].trim() : ""
+                    };
+
+                    // 簡單驗證數值
+                    if (!isNaN(record.lat) && !isNaN(record.lon)) {
+                        // 使用時間戳記+索引當作 key，確保唯一性
+                        const key = `record_${Date.now()}_${i}`;
+                        uploadData[key] = record;
+                        count++;
+                    }
+                }
+
+                if (count === 0) {
+                    throw new Error("找不到有效的數據行");
+                }
+
+                // 3. 上傳至 Firebase
+                const targetPath = `${projectName}/history`;
+                const historyRef = ref(this.db, targetPath);
+
+                set(historyRef, uploadData)
+                    .then(() => {
+                        alert(`✅ 上傳成功！\n\n專案名稱: ${projectName}\n成功匯入: ${count} 筆資料`);
+                        // 如果上傳的是當前專案，重新整理頁面以顯示
+                        if (projectName === Config.dbRootPath) {
+                             location.reload();
+                        }
+                    })
+                    .catch((err) => {
+                        console.error(err);
+                        alert("❌ 上傳至 Firebase 失敗: " + err.message);
+                    })
+                    .finally(() => {
+                        btn.disabled = false;
+                        btn.innerText = originalText;
+                    });
+
+            } catch (err) {
+                alert("❌ 解析 CSV 失敗: " + err.message);
+                btn.disabled = false;
+                btn.innerText = originalText;
+            }
+        };
+
+        reader.readAsText(file);
+    }
+
     async downloadHistoryAsCSV() {
         const btn = this.els.btnDownload;
         const originalText = btn.innerText;
@@ -273,9 +376,7 @@ class UIManager {
             }
 
             const data = snapshot.val();
-            // 加入 BOM 以防止 Excel 開啟時亂碼
             let csvContent = "\uFEFF"; 
-            // CSV 表頭
             csvContent += "Timestamp,Latitude,Longitude,Concentration,Unit,Status\n";
 
             Object.values(data).forEach(row => {
@@ -288,12 +389,11 @@ class UIManager {
                 csvContent += `${t},${lat},${lon},${conc},${unit},${st}\n`;
             });
 
-            // 建立下載連結
             const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
             const url = URL.createObjectURL(blob);
             const link = document.createElement("a");
             link.href = url;
-            link.download = `${Config.dbRootPath}.csv`; // 檔名：專案名稱.csv
+            link.download = `${Config.dbRootPath}.csv`; 
             link.click();
             URL.revokeObjectURL(url);
 
@@ -531,7 +631,7 @@ async function main() {
             if (data && data.state === 'switching') {
                 uiManager.setInterfaceMode('switching', "專案切換中", "gray", "offline");
             } else {
-                uiManager.setInterfaceMode('offline', "未連上 Controller", "gray", "offline");
+                uiManager.setInterfaceMode('offline', "未連接 Controller", "gray", "offline");
             }
             uiManager.updateRealtimeData({}, false);
             return;
@@ -562,7 +662,7 @@ async function main() {
                 break;
 
             default:
-                uiManager.setInterfaceMode('offline', "未連上 Controller", "gray", "offline");
+                uiManager.setInterfaceMode('offline', "未連接 Controller", "gray", "offline");
                 break;
         }
 
