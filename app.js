@@ -88,13 +88,11 @@ class MapManager {
         });
     }
 
-    // 🔥 新增方法：自動縮放地圖以顯示整條路徑
     fitToPath() {
         if (this.coordsArray.length > 0) {
-            // 利用 Polyline 內建的 getBounds 取得邊界，然後讓地圖 fitBounds
             const bounds = this.pathLine.getBounds();
             if (bounds.isValid()) {
-                this.map.fitBounds(bounds, { padding: [50, 50] }); // 留一點邊距
+                this.map.fitBounds(bounds, { padding: [50, 50] }); 
             }
         }
     }
@@ -161,12 +159,13 @@ class UIManager {
 
     syncConfigFromBackend(data) {
         if (!data) return;
-        Config.dbRootPath = data.project_name || Config.dbRootPath; 
+        // 🔥🔥🔥 修正1：不要讓後端覆蓋專案名稱！網址列才是老大 🔥🔥🔥
+        // Config.dbRootPath = data.project_name || Config.dbRootPath;  <-- 刪除這行
         Config.gpsIp = data.gps_ip || "";
         Config.gpsPort = data.gps_port || "";
         Config.concUnit = data.conc_unit || "";
         
-        this.els.path.innerText = Config.dbRootPath;
+        // this.els.path.innerText = Config.dbRootPath; <-- 這行也不需要了，初始化時已設定
         if (!this.els.modal.classList.contains('hidden')) {
             this.fillSettingsInputs();
         }
@@ -342,18 +341,15 @@ class UIManager {
                             const updateRef = ref(this.db, `${Config.dbRootPath}/control/config_update`);
                             set(updateRef, { project_name: projectName });
 
-                            // 3. 設定跳轉 & 自動置中標記
+                            // 3. 設定跳轉
                             const url = new URL(window.location.href);
                             url.searchParams.set('path', projectName);
-                            
-                            // 🔥🔥 關鍵：設定 localStorage 標記，通知 reload 後要自動置中 🔥🔥
                             localStorage.setItem('should_fit_bounds', 'true');
                             
-                            window.history.pushState({}, '', url);
-                            location.reload();
+                            // 🔥🔥🔥 修正2：使用 location.href 強制跳轉，確保參數正確 🔥🔥🔥
+                            window.location.href = url.toString();
                             
                         } else {
-                            // 同專案，也設定標記，讓重整後自動置中
                             localStorage.setItem('should_fit_bounds', 'true');
                             alert(`✅ 上傳成功！共 ${count} 筆資料。\n\n頁面將重新整理以顯示數據。`);
                             location.reload();
@@ -513,8 +509,9 @@ class UIManager {
                 url.searchParams.set('path', updateData.project_name);
                 
                 localStorage.setItem('is_switching', 'true');
-                window.history.pushState({}, '', url);
-                location.reload(); 
+                
+                // 🔥🔥🔥 修正3：手動修改專案時，也使用 location.href 強制跳轉 🔥🔥🔥
+                window.location.href = url.toString();
             } else {
                 btn.innerText = "✅ 已更新";
                 setTimeout(() => {
@@ -629,31 +626,21 @@ async function main() {
         uiManager.syncThresholdsFromBackend(snapshot.val());
     });
 
-    // 🔥🔥🔥 核心：檢查是否需要自動置中 (來自上傳動作) 🔥🔥🔥
     onValue(ref(db, `${Config.dbRootPath}/history`), (snapshot) => {
-        // 1. 檢查是否有標記 (代表剛上傳完) 且資料存在
         if (localStorage.getItem('should_fit_bounds') === 'true' && snapshot.exists()) {
-            
             const data = snapshot.val();
-            // 2. 取得所有資料的 key 並排序 (確保是時間順序)
             const keys = Object.keys(data).sort();
             
             if (keys.length > 0) {
-                // 3. 抓出最後一筆資料
                 const lastKey = keys[keys.length - 1];
                 const lastRecord = data[lastKey];
 
-                // 4. 如果座標有效，直接將人偶移過去並置中地圖
                 if (lastRecord && lastRecord.lat && lastRecord.lon) {
-                    // updateCurrentPosition(lat, lon, autoCenter=true)
                     mapManager.updateCurrentPosition(lastRecord.lat, lastRecord.lon, true);
-                    
-                    // 5. 稍微縮放一下視野 (設定 zoom level 為 16)
                     mapManager.map.setZoom(16);
                 }
             }
             
-            // 6. 清除標記，避免下次隨便重整也亂跳
             localStorage.removeItem('should_fit_bounds');
         }
     });
