@@ -1,5 +1,6 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-import { getDatabase, ref, onValue, onChildAdded, set } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+// 🔥 修改處 1：引入 get 方法
+import { getDatabase, ref, onValue, onChildAdded, set, get } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
 
 /**
  * 1. 設定管理
@@ -96,13 +97,12 @@ class UIManager {
     constructor(mapManager, db) {
         this.mapManager = mapManager;
         this.db = db;
-        // 預設值
         this.thresholds = { a: 50, b: 100, c: 150 };
         this.isRecording = false;
 
         this.initDOM();
         
-        // 初始化：預設為 offline 模式
+        // 初始化介面狀態
         this.setInterfaceMode('offline', "未連接 Controller", "gray", "offline");
 
         this.bindEvents();
@@ -251,7 +251,59 @@ class UIManager {
 
         this.els.btnStart.addEventListener('click', () => this.toggleRecordingCommand());
         this.els.btnUpload.addEventListener('click', () => alert(`準備上傳至 IP: ${Config.gpsIp} Port: ${Config.gpsPort}`));
-        this.els.btnDownload.addEventListener('click', () => alert("下載功能開發中..."));
+        
+        // 🔥 修改處 2：綁定下載功能
+        this.els.btnDownload.addEventListener('click', () => this.downloadHistoryAsCSV());
+    }
+
+    // 🔥 修改處 3：新增 CSV 下載邏輯
+    async downloadHistoryAsCSV() {
+        const btn = this.els.btnDownload;
+        const originalText = btn.innerText;
+        btn.disabled = true;
+        btn.innerText = "下載中...";
+
+        try {
+            const historyRef = ref(this.db, `${Config.dbRootPath}/history`);
+            const snapshot = await get(historyRef);
+
+            if (!snapshot.exists()) {
+                alert("❌ 目前沒有歷史資料可供下載");
+                return;
+            }
+
+            const data = snapshot.val();
+            // 加入 BOM 以防止 Excel 開啟時亂碼
+            let csvContent = "\uFEFF"; 
+            // CSV 表頭
+            csvContent += "Timestamp,Latitude,Longitude,Concentration,Unit,Status\n";
+
+            Object.values(data).forEach(row => {
+                const t = row.timestamp || "";
+                const lat = row.lat || "";
+                const lon = row.lon || "";
+                const conc = row.conc || 0;
+                const unit = row.conc_unit || Config.concUnit;
+                const st = row.status || "";
+                csvContent += `${t},${lat},${lon},${conc},${unit},${st}\n`;
+            });
+
+            // 建立下載連結
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = `${Config.dbRootPath}.csv`; // 檔名：專案名稱.csv
+            link.click();
+            URL.revokeObjectURL(url);
+
+        } catch (error) {
+            console.error(error);
+            alert("❌ 下載失敗: " + error.message);
+        } finally {
+            btn.disabled = false;
+            btn.innerText = originalText;
+        }
     }
 
     setInterfaceMode(mode, statusText, statusColor = 'gray', statusClass = 'offline') {
@@ -267,12 +319,11 @@ class UIManager {
             thresholdInputs.forEach(input => input.disabled = true);
         }
         else if (mode === 'offline') {
-            // 🔥 離線模式：顯示控制列、上傳、下載，但隱藏開始，隱藏設定
             if (this.els.controlBar) this.els.controlBar.style.display = ''; 
             
-            this.els.btnStart.classList.add('hidden');         // 隱藏開始
-            this.els.btnUpload.classList.remove('hidden');     // 顯示上傳
-            this.els.btnDownload.classList.remove('hidden');   // 顯示下載
+            this.els.btnStart.classList.add('hidden');         
+            this.els.btnUpload.classList.remove('hidden');     
+            this.els.btnDownload.classList.remove('hidden');   
             
             if (this.els.btnOpenSettings) this.els.btnOpenSettings.style.display = 'none';
             thresholdInputs.forEach(input => input.disabled = false);
@@ -282,7 +333,7 @@ class UIManager {
             if (this.els.btnOpenSettings) this.els.btnOpenSettings.classList.add('invisible'); 
             
             this.els.btnStart.innerText = "停止";
-            this.els.btnStart.classList.remove('hidden'); // 確保顯示
+            this.els.btnStart.classList.remove('hidden'); 
             this.els.btnStart.classList.add('btn-stop');
             
             this.els.btnUpload.classList.add('hidden');
@@ -299,7 +350,7 @@ class UIManager {
             }
 
             this.els.btnStart.innerText = "開始";
-            this.els.btnStart.classList.remove('hidden'); // 確保顯示
+            this.els.btnStart.classList.remove('hidden'); 
             this.els.btnStart.classList.remove('btn-stop');
             
             this.els.btnUpload.classList.remove('hidden');
