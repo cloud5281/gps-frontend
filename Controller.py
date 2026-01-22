@@ -105,7 +105,7 @@ class SystemController:
         new_project_name = new_settings.get('project_name', old_project_name)
 
         try:
-            # 1. 處理舊專案狀態 (變為離線)
+            # 1. 處理舊專案狀態
             if old_project_name != new_project_name:
                 self.logger.info(f"👋 正在將舊專案 ({old_project_name}) 標記為離線...")
                 db.reference(f'{old_project_name}/status').set({
@@ -113,7 +113,6 @@ class SystemController:
                     'message': f'後端已切換至: {new_project_name}'
                 })
                 
-                # 🔥 [關鍵]：預先將新專案設為「switching」，對應前端「專案切換中」
                 self.logger.info(f"🔜 預先初始化新專案 ({new_project_name}) 狀態...")
                 db.reference(f'{new_project_name}/status').set({
                     'state': 'switching', 
@@ -160,7 +159,7 @@ class SystemController:
 
             time.sleep(1.0) 
             
-            # 4. 完成切換，將狀態設為 stopped (對應前端：紀錄已停止，請重新開始)
+            # 4. 完成切換，將狀態設為 stopped
             if not (self.process and self.process.running):
                 db.reference(f'{new_project_name}/status').set({
                     'state': 'stopped',
@@ -199,7 +198,6 @@ class SystemController:
             self.process_thread = threading.Thread(target=self.process.run, daemon=True)
             self.process_thread.start()
 
-            # 🔥 狀態：連線中...
             db.reference(f'{self.cfg.PROJECT_NAME}/status').update({
                 'state': 'connecting',
                 'message': '系統啟動中...'
@@ -208,7 +206,7 @@ class SystemController:
         except Exception as e:
             self.logger.error(f"❌ 啟動失敗: {e}")
             db.reference(f'{self.cfg.PROJECT_NAME}/status').update({
-                'state': 'stopped', # 啟動失敗直接回到 stopped
+                'state': 'stopped', 
                 'message': f'啟動失敗: {str(e)}'
             })
 
@@ -223,7 +221,6 @@ class SystemController:
         
         self.process = None
         
-        # 🔥 狀態：紀錄已停止
         db.reference(f'{self.cfg.PROJECT_NAME}/status').update({
             'state': 'stopped',
             'message': '使用者手動停止'
@@ -239,7 +236,6 @@ class SystemController:
         webbrowser.open(url)
         
         self.logger.info("🧹 初始化狀態為 Stopped...")
-        # 初始狀態：紀錄已停止
         db.reference(f'{self.cfg.PROJECT_NAME}/status').set({
             'state': 'stopped',
             'message': '後端程式已就緒 (等待指令)'
@@ -255,13 +251,17 @@ class SystemController:
                 time.sleep(1)
         except KeyboardInterrupt:
             self.logger.info("👋 正在關閉系統...")
-            # 結束時設為 offline
+            
+            # 🔥 修改順序：先停程序，再寫入 Offline，確保最後狀態正確
+            if self.process:
+                self.stop_process() # 這會寫入 'stopped'
+            
+            # 🔥 覆蓋為 Offline
             db.reference(f'{self.cfg.PROJECT_NAME}/status').update({
                 'state': 'offline',
                 'message': '後端程式已關閉'
             })
-            if self.process:
-                self.stop_process()
+            
             os._exit(0)
 
 if __name__ == "__main__":

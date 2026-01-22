@@ -217,7 +217,11 @@ class UIManager {
 
     /**
      * 控制介面鎖定/解鎖
-     * mode: 'lock' (全鎖), 'recording' (錄製中), 'idle' (待機可用)
+     * mode: 
+     * 'switching' (專案切換中 - 全鎖)
+     * 'offline'   (未連上 Controller - 隱藏按鈕，但可改閾值)
+     * 'recording' (錄製中 - 隱藏設定，可改閾值)
+     * 'idle'      (待機 - 全開)
      */
     setInterfaceMode(mode, statusText, statusColor = 'gray', statusClass = 'offline') {
         const thresholdInputs = Object.values(this.els.inputs);
@@ -227,16 +231,22 @@ class UIManager {
         this.els.statusText.style.color = statusColor;
         this.els.statusDot.className = `status-dot st-${statusClass}`;
 
-        if (mode === 'lock') {
-            // 情境 1 & 切換中：全隱藏，全鎖定
+        if (mode === 'switching') {
+            // 切換中：全隱藏，全鎖定 (防止寫入錯誤)
             if (this.els.controlBar) this.els.controlBar.style.display = 'none';
             if (this.els.btnOpenSettings) this.els.btnOpenSettings.style.display = 'none';
             thresholdInputs.forEach(input => input.disabled = true);
-        } 
+        }
+        else if (mode === 'offline') {
+            // 未連接：隱藏按鈕，隱藏設定，但 **解鎖閾值**
+            if (this.els.controlBar) this.els.controlBar.style.display = 'none';
+            if (this.els.btnOpenSettings) this.els.btnOpenSettings.style.display = 'none';
+            thresholdInputs.forEach(input => input.disabled = false); // <--- 關鍵修改
+        }
         else if (mode === 'recording') {
-            // 情境 3 (連線中/成功)：顯示控制列(僅停止鍵)，隱藏設定，解鎖閾值
+            // 連線中/成功：顯示控制列(僅停止鍵)，隱藏設定，解鎖閾值
             if (this.els.controlBar) this.els.controlBar.style.display = '';
-            if (this.els.btnOpenSettings) this.els.btnOpenSettings.classList.add('invisible'); // 佔位但不顯示
+            if (this.els.btnOpenSettings) this.els.btnOpenSettings.classList.add('invisible'); 
             
             this.els.btnStart.innerText = "停止";
             this.els.btnStart.classList.add('btn-stop');
@@ -247,7 +257,7 @@ class UIManager {
             this.isRecording = true;
         } 
         else if (mode === 'idle') {
-            // 情境 2 (未開始/逾時)：全顯示，全解鎖
+            // 待機/逾時：全顯示，全解鎖
             if (this.els.controlBar) this.els.controlBar.style.display = '';
             if (this.els.btnOpenSettings) {
                 this.els.btnOpenSettings.style.display = '';
@@ -284,7 +294,7 @@ class UIManager {
         this.els.modal.classList.add('hidden');
         
         // 觸發前端先進入切換狀態
-        this.setInterfaceMode('lock', "專案切換中...", "gray", "offline");
+        this.setInterfaceMode('switching', "專案切換中...", "gray", "offline");
 
         const updateRef = ref(this.db, `${Config.dbRootPath}/control/config_update`);
         
@@ -417,7 +427,7 @@ async function main() {
             if (data && (data.state === 'stopped' || data.state === 'active')) {
                 localStorage.removeItem('is_switching');
             } else {
-                uiManager.setInterfaceMode('lock', "專案切換中", "gray", "offline");
+                uiManager.setInterfaceMode('switching', "專案切換中", "gray", "offline");
                 uiManager.updateRealtimeData({}, false);
                 return;
             }
@@ -425,11 +435,11 @@ async function main() {
 
         // --- 情境 1：資料不存在(新專案) 或 狀態為 offline ---
         if (!data || data.state === 'offline') {
-            // 除非後端明確回傳 state: 'switching'，否則視為未連線
             if (data && data.state === 'switching') {
-                uiManager.setInterfaceMode('lock', "專案切換中", "gray", "offline");
+                uiManager.setInterfaceMode('switching', "專案切換中", "gray", "offline");
             } else {
-                uiManager.setInterfaceMode('lock', "未連上 Controller", "gray", "offline");
+                // 🔥 修改點：使用 offline 模式，允許修改閾值
+                uiManager.setInterfaceMode('offline', "未連上 Controller", "gray", "offline");
             }
             uiManager.updateRealtimeData({}, false);
             return;
@@ -439,34 +449,32 @@ async function main() {
         
         // --- 根據狀態分派介面行為 ---
         switch (data.state) {
-            case 'switching': // 專案切換中 (後端設定的狀態)
-                uiManager.setInterfaceMode('lock', "專案切換中", "gray", "offline");
+            case 'switching': 
+                uiManager.setInterfaceMode('switching', "專案切換中", "gray", "offline");
                 break;
 
-            case 'stopped': // 情境 2：尚未開始 (待機)
+            case 'stopped': 
                 uiManager.setInterfaceMode('idle', "紀錄已停止，請重新開始", "gray", "stopped");
                 break;
 
-            case 'connecting': // 情境 3：連線中
+            case 'connecting': 
                 uiManager.setInterfaceMode('recording', "連線中...", "#d39e00", "connecting");
                 break;
 
-            case 'active': // 情境 3 (連線成功)
+            case 'active': 
                 uiManager.setInterfaceMode('recording', "連線成功", "#28a745", "active");
                 if (lastGpsData) uiManager.updateRealtimeData(lastGpsData, true);
                 break;
 
-            case 'timeout': // 情境 3 (連線逾時 -> 跳回狀況二)
-                // 這裡雖然顯示逾時文字，但行為模式要是 idle (可重新開始)
+            case 'timeout': 
                 uiManager.setInterfaceMode('idle', "連線逾時，請重新開始", "#dc3545", "timeout");
                 break;
 
             default:
-                uiManager.setInterfaceMode('lock', "未連上 Controller", "gray", "offline");
+                uiManager.setInterfaceMode('offline', "未連上 Controller", "gray", "offline");
                 break;
         }
 
-        // 如果不是 active，就清空即時數據顯示
         if (data.state !== 'active') {
             uiManager.updateRealtimeData({}, false);
         }
