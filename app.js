@@ -101,6 +101,11 @@ class UIManager {
         this.isRecording = false;
 
         this.initDOM();
+        
+        // 🔥🔥🔥 核心修正：初始化時直接設為「未連接 Controller」模式
+        // 這樣在 Firebase 回應之前，介面會保持隱藏按鈕的狀態，解決閃爍問題
+        this.setInterfaceMode('offline', "未連接 Controller", "gray", "offline");
+
         this.bindEvents();
         this.startClock();
     }
@@ -147,7 +152,6 @@ class UIManager {
         };
 
         this.els.path.innerText = Config.dbRootPath;
-        // 先把預設值填進去顯示
         this.updateThresholdDisplay();
         this.els.inputs.a.value = this.thresholds.a;
         this.els.inputs.b.value = this.thresholds.b;
@@ -167,23 +171,18 @@ class UIManager {
         }
     }
 
-    // 🔥 核心修改：如果是空的，就上傳預設值
     syncThresholdsFromBackend(data) {
         if (data) {
-            // Case A: Firebase 有資料 -> 同步下來
             this.thresholds = {
                 a: parseFloat(data.a),
                 b: parseFloat(data.b),
                 c: parseFloat(data.c)
             };
         } else {
-            // Case B: Firebase 沒資料 -> 將目前的預設值上傳初始化
-            // console.log("Firebase 無閾值資料，正在初始化上傳...");
-            this.saveThresholdSettings(true); // true = 靜默上傳，不顯示提示框
-            return; // 上傳後會再次觸發這個監聽，所以這裡直接 return 即可
+            this.saveThresholdSettings(true); 
+            return; 
         }
         
-        // 更新輸入框 (如果使用者沒有正在打字的話)
         if (document.activeElement !== this.els.inputs.a && 
             document.activeElement !== this.els.inputs.b && 
             document.activeElement !== this.els.inputs.c) {
@@ -390,7 +389,6 @@ class UIManager {
         return Config.COLORS.RED;
     }
 
-    // 儲存閾值到 Firebase
     saveThresholdSettings(isSilent = false) {
         const { a: elA, b: elB, c: elC } = this.els.inputs;
         const msgBox = this.els.msgBox;
@@ -411,7 +409,6 @@ class UIManager {
             return;
         }
 
-        // 寫入 Firebase
         const thRef = ref(this.db, `${Config.dbRootPath}/settings/thresholds`);
         set(thRef, { a: valA, b: valB, c: valC })
             .then(() => {
