@@ -87,6 +87,17 @@ class MapManager {
             }
         });
     }
+
+    // 🔥 新增方法：自動縮放地圖以顯示整條路徑
+    fitToPath() {
+        if (this.coordsArray.length > 0) {
+            // 利用 Polyline 內建的 getBounds 取得邊界，然後讓地圖 fitBounds
+            const bounds = this.pathLine.getBounds();
+            if (bounds.isValid()) {
+                this.map.fitBounds(bounds, { padding: [50, 50] }); // 留一點邊距
+            }
+        }
+    }
 }
 
 /**
@@ -100,10 +111,7 @@ class UIManager {
         this.isRecording = false;
 
         this.initDOM();
-        
-        // 預設為 Offline 模式 (隱藏開始，顯示上傳/下載)
         this.setInterfaceMode('offline', "未連接 Controller", "gray", "offline");
-
         this.bindEvents();
         this.startClock();
     }
@@ -326,18 +334,27 @@ class UIManager {
                         if (isDifferentProject) {
                             alert(`✅ 上傳成功！共 ${count} 筆資料。\n\n系統將自動切換至新專案: ${projectName}`);
                             
-                            // 通知後端 (如果後端有開，它會跟上)
+                            // 1. UI 顯示
+                            btn.innerText = "切換中...";
+                            this.setInterfaceMode('switching', "專案切換中...", "gray", "offline");
+
+                            // 2. 通知後端
                             const updateRef = ref(this.db, `${Config.dbRootPath}/control/config_update`);
                             set(updateRef, { project_name: projectName });
 
-                            // 🔥🔥🔥 核心修改：不等待，直接跳轉 🔥🔥🔥
-                            // 我們不設 'is_switching' 鎖，這樣就算後端沒開，前端也能正常顯示資料
+                            // 3. 設定跳轉 & 自動置中標記
                             const url = new URL(window.location.href);
                             url.searchParams.set('path', projectName);
+                            
+                            // 🔥🔥 關鍵：設定 localStorage 標記，通知 reload 後要自動置中 🔥🔥
+                            localStorage.setItem('should_fit_bounds', 'true');
+                            
                             window.history.pushState({}, '', url);
                             location.reload();
                             
                         } else {
+                            // 同專案，也設定標記，讓重整後自動置中
+                            localStorage.setItem('should_fit_bounds', 'true');
                             alert(`✅ 上傳成功！共 ${count} 筆資料。\n\n頁面將重新整理以顯示數據。`);
                             location.reload();
                         }
@@ -610,6 +627,17 @@ async function main() {
 
     onValue(ref(db, `${Config.dbRootPath}/settings/thresholds`), (snapshot) => {
         uiManager.syncThresholdsFromBackend(snapshot.val());
+    });
+
+    // 🔥🔥🔥 核心：檢查是否需要自動置中 (來自上傳動作) 🔥🔥🔥
+    onValue(ref(db, `${Config.dbRootPath}/history`), (snapshot) => {
+        if (localStorage.getItem('should_fit_bounds') === 'true' && snapshot.exists()) {
+            // 給予一點緩衝時間讓 MapManager 畫完點
+            setTimeout(() => {
+                mapManager.fitToPath();
+                localStorage.removeItem('should_fit_bounds');
+            }, 1000);
+        }
     });
 
     onValue(ref(db, `${Config.dbRootPath}/status`), (snapshot) => {
