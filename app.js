@@ -47,7 +47,6 @@ class MapManager {
             }) 
         }).addTo(this.map);
 
-        this.pathLine = L.polyline([], {color: 'blue', weight: 4}).addTo(this.map);
         this.historyLayer = L.layerGroup().addTo(this.map);
         this.coordsArray = [];
     }
@@ -61,11 +60,13 @@ class MapManager {
     addHistoryPoint(data, getColorFn) {
         const pos = [data.lat, data.lon];
         this.coordsArray.push(pos);
-        this.pathLine.setLatLngs(this.coordsArray);
 
         const color = getColorFn(data.conc);
         const circle = L.circleMarker(pos, {
-            color: 'white', fillColor: color, fillOpacity: 0.9, weight: 1, radius: 8
+            stroke: false,
+            fillColor: color, 
+            fillOpacity: 0.9, 
+            radius: 5
         });
         circle.concValue = data.conc;
 
@@ -102,8 +103,6 @@ class UIManager {
 
         this.initDOM();
         
-        // 🔥🔥🔥 核心修正：初始化時直接設為「未連接 Controller」模式
-        // 這樣在 Firebase 回應之前，介面會保持隱藏按鈕的狀態，解決閃爍問題
         this.setInterfaceMode('offline', "未連接 Controller", "gray", "offline");
 
         this.bindEvents();
@@ -251,7 +250,7 @@ class UIManager {
         }
 
         this.els.btnStart.addEventListener('click', () => this.toggleRecordingCommand());
-        this.els.btnUpload.addEventListener('click', () => alert(`準備上傳至 IP: ${Config.gpsIp} Port: ${Config.gpsPort}`));
+        this.els.btnUpload.addEventListener('click', () => alert(`上傳功能開發中...`));
         this.els.btnDownload.addEventListener('click', () => alert("下載功能開發中..."));
     }
 
@@ -400,8 +399,8 @@ class UIManager {
         const valC = parseFloat(elC.value);
         let error = null;
         if (isNaN(valA) || isNaN(valB) || isNaN(valC)) error = "❌ 請填入完整數值";
-        else if (valA >= valB) { elA.classList.add('input-error'); error = "❌ 黃色需大於綠色"; }
-        else if (valB >= valC) { elB.classList.add('input-error'); error = "❌ 橙色需大於黃色"; }
+        else if (valA >= valB) { elA.classList.add('input-error'); error = "❌ 黃色閾值需大於綠色閾值"; }
+        else if (valB >= valC) { elB.classList.add('input-error'); error = "❌ 橙色閾值需大於黃色閾值"; }
 
         if (error) {
             msgBox.innerText = error;
@@ -471,7 +470,7 @@ async function main() {
             if (data && data.state === 'switching') {
                 uiManager.setInterfaceMode('switching', "專案切換中", "gray", "offline");
             } else {
-                uiManager.setInterfaceMode('offline', "未連上 Controller", "gray", "offline");
+                uiManager.setInterfaceMode('offline', "未連接 Controller", "gray", "offline");
             }
             uiManager.updateRealtimeData({}, false);
             return;
@@ -502,7 +501,7 @@ async function main() {
                 break;
 
             default:
-                uiManager.setInterfaceMode('offline', "未連上 Controller", "gray", "offline");
+                uiManager.setInterfaceMode('offline', "未連接 Controller", "gray", "offline");
                 break;
         }
 
