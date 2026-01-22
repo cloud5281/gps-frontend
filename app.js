@@ -215,36 +215,24 @@ class UIManager {
         this.els.btnDownload.addEventListener('click', () => alert("下載功能開發中..."));
     }
 
-    /**
-     * 控制介面鎖定/解鎖
-     * mode: 
-     * 'switching' (專案切換中 - 全鎖)
-     * 'offline'   (未連上 Controller - 隱藏按鈕，但可改閾值)
-     * 'recording' (錄製中 - 隱藏設定，可改閾值)
-     * 'idle'      (待機 - 全開)
-     */
     setInterfaceMode(mode, statusText, statusColor = 'gray', statusClass = 'offline') {
         const thresholdInputs = Object.values(this.els.inputs);
         
-        // 設定狀態文字與燈號
         this.els.statusText.innerText = statusText;
         this.els.statusText.style.color = statusColor;
         this.els.statusDot.className = `status-dot st-${statusClass}`;
 
         if (mode === 'switching') {
-            // 切換中：全隱藏，全鎖定 (防止寫入錯誤)
             if (this.els.controlBar) this.els.controlBar.style.display = 'none';
             if (this.els.btnOpenSettings) this.els.btnOpenSettings.style.display = 'none';
             thresholdInputs.forEach(input => input.disabled = true);
         }
         else if (mode === 'offline') {
-            // 未連接：隱藏按鈕，隱藏設定，但 **解鎖閾值**
             if (this.els.controlBar) this.els.controlBar.style.display = 'none';
             if (this.els.btnOpenSettings) this.els.btnOpenSettings.style.display = 'none';
-            thresholdInputs.forEach(input => input.disabled = false); // <--- 關鍵修改
+            thresholdInputs.forEach(input => input.disabled = false); 
         }
         else if (mode === 'recording') {
-            // 連線中/成功：顯示控制列(僅停止鍵)，隱藏設定，解鎖閾值
             if (this.els.controlBar) this.els.controlBar.style.display = '';
             if (this.els.btnOpenSettings) this.els.btnOpenSettings.classList.add('invisible'); 
             
@@ -257,7 +245,6 @@ class UIManager {
             this.isRecording = true;
         } 
         else if (mode === 'idle') {
-            // 待機/逾時：全顯示，全解鎖
             if (this.els.controlBar) this.els.controlBar.style.display = '';
             if (this.els.btnOpenSettings) {
                 this.els.btnOpenSettings.style.display = '';
@@ -289,33 +276,49 @@ class UIManager {
 
         const btn = this.els.btnSaveBackend;
         const originalText = btn.innerText;
-        btn.innerText = "傳送中...";
         btn.disabled = true;
-        this.els.modal.classList.add('hidden');
-        
-        // 觸發前端先進入切換狀態
-        this.setInterfaceMode('switching', "專案切換中...", "gray", "offline");
+
+        // 🔥 判斷：專案名稱是否有變？
+        const isProjectChanged = (updateData.project_name && updateData.project_name !== Config.dbRootPath);
+
+        if (isProjectChanged) {
+            // Case 1: 專案變更 -> 執行完整的鎖定與跳轉流程
+            btn.innerText = "切換中...";
+            this.setInterfaceMode('switching', "專案切換中...", "gray", "offline");
+        } else {
+            // Case 2: 僅參數變更 -> 默默更新，不鎖定介面
+            btn.innerText = "更新中...";
+            // 這裡不調用 setInterfaceMode，保持原本介面狀態
+        }
 
         const updateRef = ref(this.db, `${Config.dbRootPath}/control/config_update`);
         
         set(updateRef, updateData).then(() => {
-            if (updateData.project_name && updateData.project_name !== Config.dbRootPath) {
+            if (isProjectChanged) {
                 const url = new URL(window.location.href);
                 url.searchParams.set('id', Config.firebaseProjectId);
                 if (Config.apiKey) url.searchParams.set('key', Config.apiKey);
                 url.searchParams.set('path', updateData.project_name);
                 
-                // 本地標記：切換中
                 localStorage.setItem('is_switching', 'true');
-                
                 window.history.pushState({}, '', url);
                 location.reload(); 
+            } else {
+                // 🔥 Case 2 成功處理：顯示成功並恢復按鈕
+                btn.innerText = "✅ 已更新";
+                setTimeout(() => {
+                    this.els.modal.classList.add('hidden');
+                    btn.disabled = false;
+                    btn.innerText = originalText;
+                }, 800);
             }
         }).catch((err) => {
             alert("更新失敗: " + err);
             btn.disabled = false;
             btn.innerText = originalText;
-            this.setInterfaceMode('idle', "更新失敗", "red", "timeout");
+            if (isProjectChanged) {
+                this.setInterfaceMode('idle', "更新失敗", "red", "timeout");
+            }
         });
     }
 
@@ -421,9 +424,7 @@ async function main() {
         const data = snapshot.val();
         const isSwitchingLocal = localStorage.getItem('is_switching');
         
-        // --- 優先檢查：是否正在切換專案 ---
         if (isSwitchingLocal) {
-            // 如果後端狀態已變為 stopped/active，代表切換完成
             if (data && (data.state === 'stopped' || data.state === 'active')) {
                 localStorage.removeItem('is_switching');
             } else {
@@ -433,12 +434,10 @@ async function main() {
             }
         }
 
-        // --- 情境 1：資料不存在(新專案) 或 狀態為 offline ---
         if (!data || data.state === 'offline') {
             if (data && data.state === 'switching') {
                 uiManager.setInterfaceMode('switching', "專案切換中", "gray", "offline");
             } else {
-                // 🔥 修改點：使用 offline 模式，允許修改閾值
                 uiManager.setInterfaceMode('offline', "未連上 Controller", "gray", "offline");
             }
             uiManager.updateRealtimeData({}, false);
@@ -447,7 +446,6 @@ async function main() {
 
         backendState = data.state;
         
-        // --- 根據狀態分派介面行為 ---
         switch (data.state) {
             case 'switching': 
                 uiManager.setInterfaceMode('switching', "專案切換中", "gray", "offline");

@@ -105,7 +105,7 @@ class SystemController:
         new_project_name = new_settings.get('project_name', old_project_name)
 
         try:
-            # 1. 處理舊專案狀態
+            # 1. 處理狀態 (如果專案名稱有變，才進行切換狀態通知)
             if old_project_name != new_project_name:
                 self.logger.info(f"👋 正在將舊專案 ({old_project_name}) 標記為離線...")
                 db.reference(f'{old_project_name}/status').set({
@@ -119,10 +119,8 @@ class SystemController:
                     'message': '專案切換初始化中...'
                 })
             else:
-                db.reference(f'{old_project_name}/status').update({
-                    'state': 'switching',
-                    'message': '系統設定更新中...'
-                })
+                # 🔥 專案沒變，默默更新即可，不要改狀態為 switching
+                self.logger.info(f"📝 專案名稱未變，僅更新參數配置...")
 
             # 2. 更新本地設定檔
             with open(self.config_file, 'r', encoding='utf-8') as f:
@@ -151,21 +149,25 @@ class SystemController:
                 if self.process and self.process.running:
                     self.stop_process()
                 self._setup_listeners()
+                
+                time.sleep(1.0) 
+                # 完成切換，將狀態設為 stopped
+                if not (self.process and self.process.running):
+                    db.reference(f'{new_project_name}/status').set({
+                        'state': 'stopped',
+                        'message': '就緒'
+                    })
             else:
+                # 🔥 同專案：如果有跑 Process，通常需要重啟才能套用新 IP/Port
+                # 重啟會導致短暫的 stopped -> connecting，這是正常的
                 if self.process and self.process.running:
-                    self.logger.info("🔄 偵測到參數變更，重啟子程序...")
+                    self.logger.info("🔄 偵測到參數變更，重啟子程序以套用設定...")
                     self.stop_process()
                     self.start_process()
+                else:
+                    # 如果沒在跑，就只是更新了設定，不用做動作，保持 status 不變 (應該是 stopped)
+                    pass
 
-            time.sleep(1.0) 
-            
-            # 4. 完成切換，將狀態設為 stopped
-            if not (self.process and self.process.running):
-                db.reference(f'{new_project_name}/status').set({
-                    'state': 'stopped',
-                    'message': '就緒'
-                }) 
-            
             self._push_current_config_to_firebase()
 
         except Exception as e:
@@ -252,11 +254,10 @@ class SystemController:
         except KeyboardInterrupt:
             self.logger.info("👋 正在關閉系統...")
             
-            # 🔥 修改順序：先停程序，再寫入 Offline，確保最後狀態正確
+            # 🔥 確保關閉時寫入 offline
             if self.process:
-                self.stop_process() # 這會寫入 'stopped'
+                self.stop_process() 
             
-            # 🔥 覆蓋為 Offline
             db.reference(f'{self.cfg.PROJECT_NAME}/status').update({
                 'state': 'offline',
                 'message': '後端程式已關閉'
