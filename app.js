@@ -276,7 +276,10 @@ class UIManager {
                     tension: 0.3, 
                     pointRadius: 0, 
                     pointHitRadius: 20,   
-                    pointHoverRadius: 6,  
+                    pointHoverRadius: 6,
+                    pointHoverBackgroundColor: '#dc3545', // 浮現時的顏色 (例如：紅色)
+                    pointHoverBorderColor: '#ffffff',     // 浮現時的邊框顏色 (例如：白色)
+                    pointHoverBorderWidth: 2,             // 浮現時的邊框粗細  
                     fill: true
                 }]
             },
