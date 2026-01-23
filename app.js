@@ -178,36 +178,41 @@ class UIManager {
     // 🔥🔥🔥 修改 1：優化排版、字體與滾動空間 🔥🔥🔥
     injectChartUI() {
         const lastInput = this.els.inputs.c;
+        
         if (lastInput && lastInput.parentElement && lastInput.parentElement.parentElement) {
             
             const targetParent = lastInput.parentElement.parentElement;
             
-            // 1. 父容器樣式：增加底部留白，確保滾輪能滑到底
-            targetParent.style.maxHeight = '65vh'; 
-            targetParent.style.overflowY = 'auto'; 
-            targetParent.style.paddingRight = '5px';
+            // 1. 父容器樣式：確保有滾輪且高度足夠
+            targetParent.style.maxHeight = '60vh';       
+            targetParent.style.overflowY = 'auto';       
+            targetParent.style.overflowX = 'hidden';     
+            targetParent.style.paddingRight = '5px';    
+            targetParent.style.display = 'block';        
             
-            // 2. 圖表容器
+            // 2. 建立圖表容器 (包含標題、圖表、留白)
             const container = document.createElement('div');
-            container.style.marginTop = '20px';
-            container.style.paddingTop = '15px';
-            container.style.paddingBottom = '40px'; // 增加底部留白，讓X軸不貼底
-            container.style.borderTop = '1px solid #eee';
+            // 上方間距與分隔線
+            container.style.marginTop = '25px';
+            container.style.paddingTop = '20px';
+            container.style.borderTop = '1px solid #e5e7eb'; // 淺灰分隔線
+            // 🔥 關鍵：底部增加 80px 的內距，確保圖表底部絕對不會被切掉
+            container.style.paddingBottom = '80px'; 
             
-            // 3. 標題樣式：放大、加粗、移除圖示
-            const title = document.createElement('h3');
-            title.innerText = "歷史濃度趨勢"; // 移除圖示
-            title.style.fontSize = '1.2rem';  // 放大字體
-            title.style.fontWeight = 'bold';  // 加粗
-            title.style.marginBottom = '15px';
-            title.style.color = '#333';
-            title.style.textAlign = 'center'; 
+            // 3. 標題樣式：模仿「濃度閾值設定」的風格
+            const title = document.createElement('div'); 
+            title.innerText = "歷史濃度趨勢"; 
+            title.style.fontSize = '1.25rem';    // 約 20px，對應一般標題大小
+            title.style.fontWeight = '700';      // 粗體
+            title.style.color = '#374151';       // 深灰色
+            title.style.marginBottom = '15px';   // 與圖表的距離
+            title.style.lineHeight = '1.5';
             container.appendChild(title);
 
             // 4. Canvas 外層
             const canvasWrapper = document.createElement('div');
             canvasWrapper.style.position = 'relative';
-            canvasWrapper.style.height = '220px'; // 稍微增加一點高度
+            canvasWrapper.style.height = '220px'; // 給圖表足夠的高度
             canvasWrapper.style.width = '100%';
             
             const canvas = document.createElement('canvas');
@@ -243,16 +248,24 @@ class UIManager {
             },
             options: {
                 responsive: true,
-                maintainAspectRatio: false,
+                maintainAspectRatio: false, // 讓圖表填滿我們設定的 220px
+                layout: {
+                    padding: {
+                        left: 0,
+                        right: 10,
+                        top: 0,
+                        bottom: 0
+                    }
+                },
                 scales: {
                     x: {
-                        display: true, // 顯示軸線
+                        display: true, 
                         grid: { display: false },
-                        ticks: { display: false } // 隱藏密密麻麻的時間文字
+                        ticks: { display: false } // 隱藏時間文字，只留軸線
                     },
                     y: {
                         beginAtZero: true,
-                        grid: { color: '#f5f5f5' },
+                        grid: { color: '#f0f0f0' },
                         ticks: { font: { size: 11 } } 
                     }
                 },
