@@ -1,6 +1,5 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
 import { getDatabase, ref, onValue, onChildAdded, set, get, update } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
-// 🔥🔥🔥 修改 1：引入 Chart.js 圖表庫 🔥🔥🔥
 import { Chart, registerables } from 'https://cdn.jsdelivr.net/npm/chart.js@4.4.1/+esm';
 Chart.register(...registerables);
 
@@ -117,14 +116,13 @@ class UIManager {
         this.db = db;
         this.thresholds = { a: 50, b: 100, c: 150 };
         this.isRecording = false;
-        this.chart = null; // 圖表實例
+        this.chart = null; 
 
         this.initDOM();
         this.setInterfaceMode('offline', "未連接 Controller", "gray", "offline");
         this.bindEvents();
         this.startClock();
         
-        // 🔥 初始化圖表
         this.initChart();
     }
 
@@ -174,34 +172,41 @@ class UIManager {
             this.els.autoCenter.checked = true;
         }
 
-        // 🔥🔥🔥 注入圖表 UI 🔥🔥🔥
         this.injectChartUI();
     }
 
-    // 🔥 新增：動態插入 Canvas 元素
+    // 🔥🔥🔥 修改 1：優化排版與加入滾輪 🔥🔥🔥
     injectChartUI() {
-        // 我們把圖表放在「閾值設定 (inputs.c)」的輸入框容器之後
         const lastInput = this.els.inputs.c;
+        // 找到包含輸入框的父層容器
         if (lastInput && lastInput.parentElement && lastInput.parentElement.parentElement) {
             
-            // 建立圖表容器
+            const targetParent = lastInput.parentElement.parentElement;
+            
+            // 1. 設定父容器樣式：加入滾輪與限制高度
+            targetParent.style.maxHeight = '60vh'; // 限制高度為視窗的 60%
+            targetParent.style.overflowY = 'auto'; // 超出時顯示垂直滾輪
+            targetParent.style.paddingRight = '5px'; // 避免滾輪擋住文字
+            
+            // 2. 建立圖表容器
             const container = document.createElement('div');
-            container.style.marginTop = '20px';
-            container.style.paddingTop = '15px';
+            container.style.marginTop = '15px';
+            container.style.paddingTop = '10px';
             container.style.borderTop = '1px solid #eee';
             
-            // 標題
-            const title = document.createElement('h3');
+            // 3. 標題樣式調整 (更緊湊)
+            const title = document.createElement('h4');
             title.innerText = "📈 歷史濃度趨勢";
-            title.style.fontSize = '1.1rem';
-            title.style.marginBottom = '10px';
-            title.style.color = '#333';
+            title.style.fontSize = '16px'; 
+            title.style.margin = '0 0 10px 0';
+            title.style.color = '#555';
+            title.style.textAlign = 'center';
             container.appendChild(title);
 
-            // Canvas 外層 (控制高度)
+            // 4. Canvas 外層 (固定高度，比之前小一點)
             const canvasWrapper = document.createElement('div');
             canvasWrapper.style.position = 'relative';
-            canvasWrapper.style.height = '250px'; // 固定高度
+            canvasWrapper.style.height = '200px'; // 調整為 200px，適應小螢幕
             canvasWrapper.style.width = '100%';
             
             const canvas = document.createElement('canvas');
@@ -209,15 +214,12 @@ class UIManager {
             canvasWrapper.appendChild(canvas);
             container.appendChild(canvasWrapper);
 
-            // 插入到 input 群組的父層之後 (通常是 modal content 內)
-            const targetParent = lastInput.parentElement.parentElement; 
             targetParent.appendChild(container);
             
             this.chartCanvas = canvas;
         }
     }
 
-    // 🔥 新增：初始化 Chart.js
     initChart() {
         if (!this.chartCanvas) return;
 
@@ -227,13 +229,13 @@ class UIManager {
             data: {
                 labels: [],
                 datasets: [{
-                    label: '濃度數值',
+                    label: '濃度',
                     data: [],
                     borderColor: '#007bff',
                     backgroundColor: 'rgba(0, 123, 255, 0.1)',
                     borderWidth: 2,
-                    tension: 0.3, // 稍微平滑的曲線
-                    pointRadius: 0, // 不顯示點，保持乾淨
+                    tension: 0.3, 
+                    pointRadius: 0, 
                     fill: true
                 }]
             },
@@ -242,12 +244,13 @@ class UIManager {
                 maintainAspectRatio: false,
                 scales: {
                     x: {
-                        display: false, // 隱藏 X 軸標籤 (時間太長會很亂)
+                        display: false, 
                         grid: { display: false }
                     },
                     y: {
                         beginAtZero: true,
-                        grid: { color: '#f0f0f0' }
+                        grid: { color: '#f5f5f5' },
+                        ticks: { font: { size: 10 } } // Y軸字體改小
                     }
                 },
                 plugins: {
@@ -255,6 +258,8 @@ class UIManager {
                     tooltip: {
                         mode: 'index',
                         intersect: false,
+                        bodyFont: { size: 12 }, // Tooltip 字體調整
+                        padding: 8
                     }
                 },
                 interaction: {
@@ -266,21 +271,16 @@ class UIManager {
         });
     }
 
-    // 🔥 新增：更新圖表數據
     updateChart(historyData) {
         if (!this.chart || !historyData) return;
 
-        // 將物件轉為陣列並排序
         const sortedData = Object.values(historyData).sort((a, b) => {
-            // 簡單的時間字串比較，若格式固定可直接比
             return a.timestamp.localeCompare(b.timestamp);
         });
 
-        // 提取數據
-        const labels = sortedData.map(d => d.timestamp.split(' ')[1]); // 只取時間部分 HH:mm:ss
+        const labels = sortedData.map(d => d.timestamp.split(' ')[1]); 
         const values = sortedData.map(d => d.conc);
 
-        // 更新圖表
         this.chart.data.labels = labels;
         this.chart.data.datasets[0].data = values;
         this.chart.update();
@@ -754,7 +754,6 @@ async function main() {
     });
 
     onValue(ref(db, `${Config.dbRootPath}/history`), (snapshot) => {
-        // 🔥🔥 同步更新圖表 🔥🔥
         if(snapshot.exists()) {
             uiManager.updateChart(snapshot.val());
         }
