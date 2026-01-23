@@ -181,38 +181,39 @@ class UIManager {
         
         if (lastInput && lastInput.parentElement && lastInput.parentElement.parentElement) {
             
+            // 1. 處理最外層面板 (Info Panel) 的滾動
+            // 我們往上找 .info-panel，限制它的高度，讓整個白框變成可滾動的
+            const infoPanel = lastInput.closest('.info-panel');
+            if (infoPanel) {
+                infoPanel.style.maxHeight = '85vh'; // 限制高度，避免超出螢幕
+                infoPanel.style.overflowY = 'auto'; // 開啟垂直滾輪
+                infoPanel.style.overflowX = 'hidden';
+                infoPanel.style.scrollbarWidth = 'thin'; // Firefox 瘦滾輪
+            }
+
             const targetParent = lastInput.parentElement.parentElement;
             
-            // 1. 父容器樣式：確保有滾輪且高度足夠
-            targetParent.style.maxHeight = '60vh';       
-            targetParent.style.overflowY = 'auto';       
-            targetParent.style.overflowX = 'hidden';     
-            targetParent.style.paddingRight = '5px';    
-            targetParent.style.display = 'block';        
-            
-            // 2. 建立圖表容器 (包含標題、圖表、留白)
+            // 2. 建立圖表容器
             const container = document.createElement('div');
-            // 上方間距與分隔線
-            container.style.marginTop = '25px';
-            container.style.paddingTop = '20px';
-            container.style.borderTop = '1px solid #e5e7eb'; // 淺灰分隔線
-            // 🔥 關鍵：底部增加 80px 的內距，確保圖表底部絕對不會被切掉
-            container.style.paddingBottom = '80px'; 
+            container.style.marginTop = '12px';
+            container.style.paddingTop = '12px';
+            container.style.borderTop = '1px solid #eee';
             
-            // 3. 標題樣式：模仿「濃度閾值設定」的風格
+            // 3. 標題樣式：完全模仿「濃度閾值設定」(.section-header)
+            // 依據 style.css: color: #444; font-weight: 600; font-size: 14px (繼承);
             const title = document.createElement('div'); 
             title.innerText = "歷史濃度趨勢"; 
-            title.style.fontSize = '1.25rem';    // 約 20px，對應一般標題大小
-            title.style.fontWeight = '700';      // 粗體
-            title.style.color = '#374151';       // 深灰色
-            title.style.marginBottom = '15px';   // 與圖表的距離
-            title.style.lineHeight = '1.5';
+            title.style.color = '#444';       
+            title.style.fontWeight = '600';   
+            title.style.fontSize = '14px';    // 與上方一致
+            title.style.marginBottom = '10px';
+            title.style.textAlign = 'left';   // 靠左對齊
             container.appendChild(title);
 
             // 4. Canvas 外層
             const canvasWrapper = document.createElement('div');
             canvasWrapper.style.position = 'relative';
-            canvasWrapper.style.height = '220px'; // 給圖表足夠的高度
+            canvasWrapper.style.height = '180px'; // 高度適中
             canvasWrapper.style.width = '100%';
             
             const canvas = document.createElement('canvas');
@@ -220,13 +221,20 @@ class UIManager {
             canvasWrapper.appendChild(canvas);
             container.appendChild(canvasWrapper);
 
+            // 5. 底部強制留白 (Spacer)
+            // 這能解決「滑到底部還是看不到 X 軸」的問題
+            const spacer = document.createElement('div');
+            spacer.style.height = '40px'; 
+            spacer.style.width = '100%';
+            container.appendChild(spacer);
+
             targetParent.appendChild(container);
             
             this.chartCanvas = canvas;
         }
     }
 
-    // 🔥🔥🔥 修改 2：顯示 X 軸線但隱藏文字 🔥🔥🔥
+    // 🔥🔥🔥 修改 2：確保圖表設定正確 (維持不變，確認一下即可) 🔥🔥🔥
     initChart() {
         if (!this.chartCanvas) return;
 
@@ -248,7 +256,7 @@ class UIManager {
             },
             options: {
                 responsive: true,
-                maintainAspectRatio: false, // 讓圖表填滿我們設定的 220px
+                maintainAspectRatio: false, // 讓圖表填滿我們設定的 180px
                 layout: {
                     padding: {
                         left: 0,
