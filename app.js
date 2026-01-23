@@ -175,38 +175,39 @@ class UIManager {
         this.injectChartUI();
     }
 
-    // 🔥🔥🔥 修改 1：優化排版與加入滾輪 🔥🔥🔥
+    // 🔥🔥🔥 修改 1：優化排版、字體與滾動空間 🔥🔥🔥
     injectChartUI() {
         const lastInput = this.els.inputs.c;
-        // 找到包含輸入框的父層容器
         if (lastInput && lastInput.parentElement && lastInput.parentElement.parentElement) {
             
             const targetParent = lastInput.parentElement.parentElement;
             
-            // 1. 設定父容器樣式：加入滾輪與限制高度
-            targetParent.style.maxHeight = '60vh'; // 限制高度為視窗的 60%
-            targetParent.style.overflowY = 'auto'; // 超出時顯示垂直滾輪
-            targetParent.style.paddingRight = '5px'; // 避免滾輪擋住文字
+            // 1. 父容器樣式：增加底部留白，確保滾輪能滑到底
+            targetParent.style.maxHeight = '65vh'; 
+            targetParent.style.overflowY = 'auto'; 
+            targetParent.style.paddingRight = '5px';
             
-            // 2. 建立圖表容器
+            // 2. 圖表容器
             const container = document.createElement('div');
-            container.style.marginTop = '15px';
-            container.style.paddingTop = '10px';
+            container.style.marginTop = '20px';
+            container.style.paddingTop = '15px';
+            container.style.paddingBottom = '40px'; // 增加底部留白，讓X軸不貼底
             container.style.borderTop = '1px solid #eee';
             
-            // 3. 標題樣式調整 (更緊湊)
-            const title = document.createElement('h4');
-            title.innerText = "📈 歷史濃度趨勢";
-            title.style.fontSize = '16px'; 
-            title.style.margin = '0 0 10px 0';
-            title.style.color = '#555';
-            title.style.textAlign = 'center';
+            // 3. 標題樣式：放大、加粗、移除圖示
+            const title = document.createElement('h3');
+            title.innerText = "歷史濃度趨勢"; // 移除圖示
+            title.style.fontSize = '1.2rem';  // 放大字體
+            title.style.fontWeight = 'bold';  // 加粗
+            title.style.marginBottom = '15px';
+            title.style.color = '#333';
+            title.style.textAlign = 'center'; 
             container.appendChild(title);
 
-            // 4. Canvas 外層 (固定高度，比之前小一點)
+            // 4. Canvas 外層
             const canvasWrapper = document.createElement('div');
             canvasWrapper.style.position = 'relative';
-            canvasWrapper.style.height = '200px'; // 調整為 200px，適應小螢幕
+            canvasWrapper.style.height = '220px'; // 稍微增加一點高度
             canvasWrapper.style.width = '100%';
             
             const canvas = document.createElement('canvas');
@@ -220,6 +221,7 @@ class UIManager {
         }
     }
 
+    // 🔥🔥🔥 修改 2：顯示 X 軸線但隱藏文字 🔥🔥🔥
     initChart() {
         if (!this.chartCanvas) return;
 
@@ -244,13 +246,14 @@ class UIManager {
                 maintainAspectRatio: false,
                 scales: {
                     x: {
-                        display: false, 
-                        grid: { display: false }
+                        display: true, // 顯示軸線
+                        grid: { display: false },
+                        ticks: { display: false } // 隱藏密密麻麻的時間文字
                     },
                     y: {
                         beginAtZero: true,
                         grid: { color: '#f5f5f5' },
-                        ticks: { font: { size: 10 } } // Y軸字體改小
+                        ticks: { font: { size: 11 } } 
                     }
                 },
                 plugins: {
@@ -258,8 +261,8 @@ class UIManager {
                     tooltip: {
                         mode: 'index',
                         intersect: false,
-                        bodyFont: { size: 12 }, // Tooltip 字體調整
-                        padding: 8
+                        bodyFont: { size: 13 },
+                        padding: 10
                     }
                 },
                 interaction: {
