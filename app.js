@@ -105,6 +105,27 @@ class MapManager {
             }
         }
     }
+
+    // 🔥🔥🔥 新增：聚焦並顯示特定點的 Tooltip 🔥🔥🔥
+    focusOnPoint(lat, lon) {
+        const target = L.latLng(lat, lon);
+        let foundLayer = null;
+
+        // 遍歷所有歷史點位，尋找座標匹配的點
+        this.historyLayer.eachLayer((layer) => {
+            // 使用 equals 做座標比對，允許極小誤差
+            if (layer.getLatLng && layer.getLatLng().equals(target)) {
+                foundLayer = layer;
+            }
+        });
+
+        if (foundLayer) {
+            // 1. 移動地圖並縮放
+            this.map.setView(target, Config.ZOOM_LEVEL);
+            // 2. 打開該點的 Tooltip (模擬 Mouseover)
+            foundLayer.openTooltip();
+        }
+    }
 }
 
 /**
@@ -117,6 +138,7 @@ class UIManager {
         this.thresholds = { a: 50, b: 100, c: 150 };
         this.isRecording = false;
         this.chart = null; 
+        this.sortedHistoryData = []; // 🔥 新增：暫存排序後的資料供點擊使用
 
         this.initDOM();
         this.setInterfaceMode('offline', "未連接 Controller", "gray", "offline");
@@ -175,45 +197,37 @@ class UIManager {
         this.injectChartUI();
     }
 
-    // 🔥🔥🔥 修改 1：優化排版、字體與滾動空間 🔥🔥🔥
     injectChartUI() {
         const lastInput = this.els.inputs.c;
         
         if (lastInput && lastInput.parentElement && lastInput.parentElement.parentElement) {
             
-            // 1. 處理最外層面板 (Info Panel) 的滾動
-            // 我們往上找 .info-panel，限制它的高度，讓整個白框變成可滾動的
-            const infoPanel = lastInput.closest('.info-panel');
-            if (infoPanel) {
-                infoPanel.style.maxHeight = '85vh'; // 限制高度，避免超出螢幕
-                infoPanel.style.overflowY = 'auto'; // 開啟垂直滾輪
-                infoPanel.style.overflowX = 'hidden';
-                infoPanel.style.scrollbarWidth = 'thin'; // Firefox 瘦滾輪
-            }
-
             const targetParent = lastInput.parentElement.parentElement;
             
-            // 2. 建立圖表容器
-            const container = document.createElement('div');
-            container.style.marginTop = '12px';
-            container.style.paddingTop = '12px';
-            container.style.borderTop = '1px solid #eee';
+            targetParent.style.maxHeight = '60vh';       
+            targetParent.style.overflowY = 'auto';       
+            targetParent.style.overflowX = 'hidden';     
+            targetParent.style.paddingRight = '5px';    
+            targetParent.style.display = 'block';        
             
-            // 3. 標題樣式：完全模仿「濃度閾值設定」(.section-header)
-            // 依據 style.css: color: #444; font-weight: 600; font-size: 14px (繼承);
+            const container = document.createElement('div');
+            container.style.marginTop = '25px';
+            container.style.paddingTop = '20px';
+            container.style.borderTop = '1px solid #e5e7eb'; 
+            container.style.paddingBottom = '80px'; 
+            
             const title = document.createElement('div'); 
             title.innerText = "歷史濃度趨勢"; 
-            title.style.color = '#444';       
-            title.style.fontWeight = '600';   
-            title.style.fontSize = '14px';    // 與上方一致
-            title.style.marginBottom = '10px';
-            title.style.textAlign = 'left';   // 靠左對齊
+            title.style.fontSize = '1.25rem';    
+            title.style.fontWeight = '700';      
+            title.style.color = '#374151';       
+            title.style.marginBottom = '15px';   
+            title.style.lineHeight = '1.5';
             container.appendChild(title);
 
-            // 4. Canvas 外層
             const canvasWrapper = document.createElement('div');
             canvasWrapper.style.position = 'relative';
-            canvasWrapper.style.height = '180px'; // 高度適中
+            canvasWrapper.style.height = '220px'; 
             canvasWrapper.style.width = '100%';
             
             const canvas = document.createElement('canvas');
@@ -221,20 +235,12 @@ class UIManager {
             canvasWrapper.appendChild(canvas);
             container.appendChild(canvasWrapper);
 
-            // 5. 底部強制留白 (Spacer)
-            // 這能解決「滑到底部還是看不到 X 軸」的問題
-            const spacer = document.createElement('div');
-            spacer.style.height = '40px'; 
-            spacer.style.width = '100%';
-            container.appendChild(spacer);
-
             targetParent.appendChild(container);
             
             this.chartCanvas = canvas;
         }
     }
 
-    // 🔥🔥🔥 修改 2：確保圖表設定正確 (維持不變，確認一下即可) 🔥🔥🔥
     initChart() {
         if (!this.chartCanvas) return;
 
@@ -251,25 +257,22 @@ class UIManager {
                     borderWidth: 2,
                     tension: 0.3, 
                     pointRadius: 0, 
+                    pointHitRadius: 20,   // 增加點擊感應範圍 (讓你好點)
+                    pointHoverRadius: 6,    // 滑鼠靠近時顯示半徑 6 的點 (提示可點)
                     fill: true
                 }]
             },
             options: {
                 responsive: true,
-                maintainAspectRatio: false, // 讓圖表填滿我們設定的 180px
+                maintainAspectRatio: false, 
                 layout: {
-                    padding: {
-                        left: 0,
-                        right: 10,
-                        top: 0,
-                        bottom: 0
-                    }
+                    padding: { left: 0, right: 10, top: 0, bottom: 0 }
                 },
                 scales: {
                     x: {
                         display: true, 
                         grid: { display: false },
-                        ticks: { display: false } // 隱藏時間文字，只留軸線
+                        ticks: { display: false } 
                     },
                     y: {
                         beginAtZero: true,
@@ -286,6 +289,20 @@ class UIManager {
                         padding: 10
                     }
                 },
+                // 🔥🔥🔥 修改：加入 onClick 事件 🔥🔥🔥
+                onClick: (e, elements) => {
+                    if (elements.length > 0) {
+                        // 取得被點擊的點索引
+                        const index = elements[0].index;
+                        // 從暫存的資料中取得對應的紀錄
+                        const record = this.sortedHistoryData[index];
+                        
+                        if (record && record.lat && record.lon) {
+                            // 通知地圖移動並顯示資訊
+                            this.mapManager.focusOnPoint(record.lat, record.lon);
+                        }
+                    }
+                },
                 interaction: {
                     mode: 'nearest',
                     axis: 'x',
@@ -298,12 +315,13 @@ class UIManager {
     updateChart(historyData) {
         if (!this.chart || !historyData) return;
 
-        const sortedData = Object.values(historyData).sort((a, b) => {
+        // 🔥🔥🔥 修改：保存排序後的資料到 this.sortedHistoryData 🔥🔥🔥
+        this.sortedHistoryData = Object.values(historyData).sort((a, b) => {
             return a.timestamp.localeCompare(b.timestamp);
         });
 
-        const labels = sortedData.map(d => d.timestamp.split(' ')[1]); 
-        const values = sortedData.map(d => d.conc);
+        const labels = this.sortedHistoryData.map(d => d.timestamp.split(' ')[1]); 
+        const values = this.sortedHistoryData.map(d => d.conc);
 
         this.chart.data.labels = labels;
         this.chart.data.datasets[0].data = values;
