@@ -55,7 +55,7 @@ class MapManager {
         
         this.historyLayer = L.layerGroup().addTo(this.map);
         this.coordsArray = [];
-
+        
         this.lastFocusedLayer = null;
     }
 
@@ -108,12 +108,10 @@ class MapManager {
         }
     }
 
-    // 🔥🔥🔥 新增：聚焦並顯示特定點的 Tooltip 🔥🔥🔥
     focusOnPoint(lat, lon) {
         const target = L.latLng(lat, lon);
         let foundLayer = null;
 
-        // 1. 尋找目標點
         this.historyLayer.eachLayer((layer) => {
             if (layer.getLatLng && layer.getLatLng().equals(target)) {
                 foundLayer = layer;
@@ -121,18 +119,12 @@ class MapManager {
         });
 
         if (foundLayer) {
-            // 2. 如果有上一個開啟的點，先關閉它的 Tooltip
             if (this.lastFocusedLayer && this.lastFocusedLayer !== foundLayer) {
                 this.lastFocusedLayer.closeTooltip();
             }
 
-            // 3. 移動視野
             this.map.setView(target, Config.ZOOM_LEVEL);
-            
-            // 4. 開啟新的 Tooltip
             foundLayer.openTooltip();
-
-            // 5. 更新紀錄
             this.lastFocusedLayer = foundLayer;
         }
     }
@@ -148,7 +140,8 @@ class UIManager {
         this.thresholds = { a: 50, b: 100, c: 150 };
         this.isRecording = false;
         this.chart = null; 
-        this.sortedHistoryData = []; // 🔥 新增：暫存排序後的資料供點擊使用
+        this.sortedHistoryData = []; 
+        this.chartTitleTextEl = null; // 儲存標題文字物件
 
         this.initDOM();
         this.setInterfaceMode('offline', "未連接 Controller", "gray", "offline");
@@ -212,38 +205,53 @@ class UIManager {
         
         if (lastInput && lastInput.parentElement && lastInput.parentElement.parentElement) {
             
+            // 處理面板滾動
+            const infoPanel = lastInput.closest('.info-panel');
+            if (infoPanel) {
+                infoPanel.style.maxHeight = '85vh'; 
+                infoPanel.style.overflowY = 'auto'; 
+                infoPanel.style.overflowX = 'hidden';
+                infoPanel.style.scrollbarWidth = 'thin';
+            }
+
             const targetParent = lastInput.parentElement.parentElement;
             
-            targetParent.style.maxHeight = '60vh';       
-            targetParent.style.overflowY = 'auto';       
-            targetParent.style.overflowX = 'hidden';     
-            targetParent.style.paddingRight = '5px';    
-            targetParent.style.display = 'block';        
-            
             const container = document.createElement('div');
-            container.style.marginTop = '25px';
-            container.style.paddingTop = '20px';
-            container.style.borderTop = '1px solid #e5e7eb'; 
-            container.style.paddingBottom = '80px'; 
+            container.style.marginTop = '12px';
+            container.style.paddingTop = '12px';
+            container.style.borderTop = '1px solid #eee';
             
-            const title = document.createElement('div'); 
-            title.innerText = "歷史濃度趨勢"; 
-            title.style.fontSize = '1.25rem';    
-            title.style.fontWeight = '700';      
-            title.style.color = '#374151';       
-            title.style.marginBottom = '15px';   
-            title.style.lineHeight = '1.5';
-            container.appendChild(title);
+            // --- 標題區域 ---
+            // 🔥🔥🔥 關鍵：直接套用 CSS 裡的 class，確保樣式 100% 一致 🔥🔥🔥
+            const headerDiv = document.createElement('div');
+            headerDiv.className = 'section-header'; 
+            
+            // 建立一個 span 來放文字，方便後續修改內容 (加上單位)
+            const titleSpan = document.createElement('span');
+            titleSpan.innerText = "歷史濃度趨勢"; 
+            
+            headerDiv.appendChild(titleSpan);
+            container.appendChild(headerDiv);
+            
+            // 儲存這個 span 的參照
+            this.chartTitleTextEl = titleSpan;
 
+            // --- 圖表區域 ---
             const canvasWrapper = document.createElement('div');
             canvasWrapper.style.position = 'relative';
-            canvasWrapper.style.height = '220px'; 
+            canvasWrapper.style.height = '180px'; 
             canvasWrapper.style.width = '100%';
             
             const canvas = document.createElement('canvas');
             canvas.id = 'concChart';
             canvasWrapper.appendChild(canvas);
             container.appendChild(canvasWrapper);
+
+            // --- 底部留白 ---
+            const spacer = document.createElement('div');
+            spacer.style.height = '40px'; 
+            spacer.style.width = '100%';
+            container.appendChild(spacer);
 
             targetParent.appendChild(container);
             
@@ -267,8 +275,8 @@ class UIManager {
                     borderWidth: 2,
                     tension: 0.3, 
                     pointRadius: 0, 
-                    pointHitRadius: 20,   // 增加點擊感應範圍 (讓你好點)
-                    pointHoverRadius: 6,    // 滑鼠靠近時顯示半徑 6 的點 (提示可點)
+                    pointHitRadius: 20,   
+                    pointHoverRadius: 6,  
                     fill: true
                 }]
             },
@@ -299,16 +307,12 @@ class UIManager {
                         padding: 10
                     }
                 },
-                // 🔥🔥🔥 修改：加入 onClick 事件 🔥🔥🔥
                 onClick: (e, elements) => {
                     if (elements.length > 0) {
-                        // 取得被點擊的點索引
                         const index = elements[0].index;
-                        // 從暫存的資料中取得對應的紀錄
                         const record = this.sortedHistoryData[index];
                         
                         if (record && record.lat && record.lon) {
-                            // 通知地圖移動並顯示資訊
                             this.mapManager.focusOnPoint(record.lat, record.lon);
                         }
                     }
@@ -325,7 +329,6 @@ class UIManager {
     updateChart(historyData) {
         if (!this.chart || !historyData) return;
 
-        // 🔥🔥🔥 修改：保存排序後的資料到 this.sortedHistoryData 🔥🔥🔥
         this.sortedHistoryData = Object.values(historyData).sort((a, b) => {
             return a.timestamp.localeCompare(b.timestamp);
         });
@@ -346,6 +349,12 @@ class UIManager {
         
         if (!this.els.modal.classList.contains('hidden')) {
             this.fillSettingsInputs();
+        }
+
+        // 🔥🔥🔥 這裡就是你要的：同步時加上 (單位) 🔥🔥🔥
+        if (this.chartTitleTextEl) {
+            const unitText = Config.concUnit ? ` (${Config.concUnit})` : "";
+            this.chartTitleTextEl.innerText = `歷史濃度趨勢${unitText}`;
         }
     }
 
@@ -399,6 +408,17 @@ class UIManager {
 
         this.els.btnSaveBackend.addEventListener('click', () => {
             this.saveBackendSettings();
+        });
+
+        // 🔥🔥🔥 修正：讓設定視窗內的輸入框支援 Enter 鍵儲存 🔥🔥🔥
+        Object.values(this.els.backendInputs).forEach(input => {
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault(); 
+                    input.blur(); 
+                    this.saveBackendSettings();
+                }
+            });
         });
 
         Object.values(this.els.inputs).forEach(input => {
