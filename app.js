@@ -1,5 +1,8 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
 import { getDatabase, ref, onValue, onChildAdded, set, get, update } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+// 🔥🔥🔥 修改 1：引入 Chart.js 圖表庫 🔥🔥🔥
+import { Chart, registerables } from 'https://cdn.jsdelivr.net/npm/chart.js@4.4.1/+esm';
+Chart.register(...registerables);
 
 /**
  * 1. 設定管理
@@ -114,11 +117,15 @@ class UIManager {
         this.db = db;
         this.thresholds = { a: 50, b: 100, c: 150 };
         this.isRecording = false;
+        this.chart = null; // 圖表實例
 
         this.initDOM();
         this.setInterfaceMode('offline', "未連接 Controller", "gray", "offline");
         this.bindEvents();
         this.startClock();
+        
+        // 🔥 初始化圖表
+        this.initChart();
     }
 
     initDOM() {
@@ -166,6 +173,117 @@ class UIManager {
         if (this.els.autoCenter) {
             this.els.autoCenter.checked = true;
         }
+
+        // 🔥🔥🔥 注入圖表 UI 🔥🔥🔥
+        this.injectChartUI();
+    }
+
+    // 🔥 新增：動態插入 Canvas 元素
+    injectChartUI() {
+        // 我們把圖表放在「閾值設定 (inputs.c)」的輸入框容器之後
+        const lastInput = this.els.inputs.c;
+        if (lastInput && lastInput.parentElement && lastInput.parentElement.parentElement) {
+            
+            // 建立圖表容器
+            const container = document.createElement('div');
+            container.style.marginTop = '20px';
+            container.style.paddingTop = '15px';
+            container.style.borderTop = '1px solid #eee';
+            
+            // 標題
+            const title = document.createElement('h3');
+            title.innerText = "📈 歷史濃度趨勢";
+            title.style.fontSize = '1.1rem';
+            title.style.marginBottom = '10px';
+            title.style.color = '#333';
+            container.appendChild(title);
+
+            // Canvas 外層 (控制高度)
+            const canvasWrapper = document.createElement('div');
+            canvasWrapper.style.position = 'relative';
+            canvasWrapper.style.height = '250px'; // 固定高度
+            canvasWrapper.style.width = '100%';
+            
+            const canvas = document.createElement('canvas');
+            canvas.id = 'concChart';
+            canvasWrapper.appendChild(canvas);
+            container.appendChild(canvasWrapper);
+
+            // 插入到 input 群組的父層之後 (通常是 modal content 內)
+            const targetParent = lastInput.parentElement.parentElement; 
+            targetParent.appendChild(container);
+            
+            this.chartCanvas = canvas;
+        }
+    }
+
+    // 🔥 新增：初始化 Chart.js
+    initChart() {
+        if (!this.chartCanvas) return;
+
+        const ctx = this.chartCanvas.getContext('2d');
+        this.chart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: '濃度數值',
+                    data: [],
+                    borderColor: '#007bff',
+                    backgroundColor: 'rgba(0, 123, 255, 0.1)',
+                    borderWidth: 2,
+                    tension: 0.3, // 稍微平滑的曲線
+                    pointRadius: 0, // 不顯示點，保持乾淨
+                    fill: true
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: {
+                        display: false, // 隱藏 X 軸標籤 (時間太長會很亂)
+                        grid: { display: false }
+                    },
+                    y: {
+                        beginAtZero: true,
+                        grid: { color: '#f0f0f0' }
+                    }
+                },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        mode: 'index',
+                        intersect: false,
+                    }
+                },
+                interaction: {
+                    mode: 'nearest',
+                    axis: 'x',
+                    intersect: false
+                }
+            }
+        });
+    }
+
+    // 🔥 新增：更新圖表數據
+    updateChart(historyData) {
+        if (!this.chart || !historyData) return;
+
+        // 將物件轉為陣列並排序
+        const sortedData = Object.values(historyData).sort((a, b) => {
+            // 簡單的時間字串比較，若格式固定可直接比
+            return a.timestamp.localeCompare(b.timestamp);
+        });
+
+        // 提取數據
+        const labels = sortedData.map(d => d.timestamp.split(' ')[1]); // 只取時間部分 HH:mm:ss
+        const values = sortedData.map(d => d.conc);
+
+        // 更新圖表
+        this.chart.data.labels = labels;
+        this.chart.data.datasets[0].data = values;
+        this.chart.update();
     }
 
     syncConfigFromBackend(data) {
@@ -582,8 +700,8 @@ class UIManager {
         const valC = parseFloat(elC.value);
         let error = null;
         if (isNaN(valA) || isNaN(valB) || isNaN(valC)) error = "❌ 請填入完整數值";
-        else if (valA >= valB) { elA.classList.add('input-error'); error = "❌ 黃色閾值需大於綠色閾值"; }
-        else if (valB >= valC) { elB.classList.add('input-error'); error = "❌ 橙色閾值需大於黃色閾值"; }
+        else if (valA >= valB) { elA.classList.add('input-error'); error = "❌ 黃色需大於綠色"; }
+        else if (valB >= valC) { elB.classList.add('input-error'); error = "❌ 橙色需大於黃色"; }
 
         if (error) {
             msgBox.innerText = error;
@@ -636,6 +754,11 @@ async function main() {
     });
 
     onValue(ref(db, `${Config.dbRootPath}/history`), (snapshot) => {
+        // 🔥🔥 同步更新圖表 🔥🔥
+        if(snapshot.exists()) {
+            uiManager.updateChart(snapshot.val());
+        }
+
         if (localStorage.getItem('should_fit_bounds') === 'true' && snapshot.exists()) {
             const data = snapshot.val();
             const keys = Object.keys(data).sort();
@@ -724,12 +847,10 @@ async function main() {
         if (snapshot.val()) mapManager.addHistoryPoint(snapshot.val(), uiManager.getColor.bind(uiManager));
     });
 
-    // 🔥🔥🔥 核心修改：監聽 Checkbox change 事件，勾選瞬間強制跳轉 🔥🔥🔥
     const autoCenterBox = document.getElementById('autoCenter');
     if (autoCenterBox) {
         autoCenterBox.addEventListener('change', (e) => {
             if (e.target.checked && lastGpsData && lastGpsData.lat) {
-                // 強制移動到最新位置，並使用設定的 Zoom Level
                 mapManager.updateCurrentPosition(lastGpsData.lat, lastGpsData.lon, true);
                 mapManager.map.setZoom(Config.ZOOM_LEVEL);
             }
