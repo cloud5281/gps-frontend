@@ -1,7 +1,11 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
 import { getDatabase, ref, onValue, onChildAdded, set, get, update } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
 import { Chart, registerables } from 'https://cdn.jsdelivr.net/npm/chart.js@4.4.1/+esm';
-Chart.register(...registerables);
+// 🔥🔥🔥 修改 1：引入 Zoom Plugin 🔥🔥🔥
+import zoomPlugin from 'https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/+esm';
+
+// 🔥🔥🔥 修改 2：註冊 Zoom Plugin 🔥🔥🔥
+Chart.register(...registerables, zoomPlugin);
 
 /**
  * 1. 設定管理
@@ -308,6 +312,21 @@ class UIManager {
                         intersect: false,
                         bodyFont: { size: 13 },
                         padding: 10
+                    },
+                    // 🔥🔥🔥 修改 3：加入 zoom plugin 設定 🔥🔥🔥
+                    zoom: {
+                        zoom: {
+                            wheel: { enabled: true }, // 啟用滾輪縮放
+                            pinch: { enabled: true }, // 啟用觸控縮放
+                            mode: 'x',                // 只縮放 X 軸 (時間)
+                        },
+                        pan: {
+                            enabled: true,            // 啟用平移 (拖曳)
+                            mode: 'x',                // 只平移 X 軸
+                        },
+                        limits: {
+                            x: { min: 'original', max: 'original' } // 防止拖曳到沒有資料的地方
+                        }
                     }
                 },
                 onClick: (e, elements) => {
@@ -342,6 +361,9 @@ class UIManager {
         this.chart.data.labels = labels;
         this.chart.data.datasets[0].data = values;
         this.chart.update();
+        
+        // 🔥 當資料更新時，重置縮放狀態，以免卡在舊的位置 🔥
+        this.chart.resetZoom();
     }
 
     syncConfigFromBackend(data) {
