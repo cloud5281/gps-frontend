@@ -55,6 +55,8 @@ class MapManager {
         
         this.historyLayer = L.layerGroup().addTo(this.map);
         this.coordsArray = [];
+
+        this.lastFocusedLayer = null;
     }
 
     updateCurrentPosition(lat, lon, autoCenter) {
@@ -111,19 +113,27 @@ class MapManager {
         const target = L.latLng(lat, lon);
         let foundLayer = null;
 
-        // 遍歷所有歷史點位，尋找座標匹配的點
+        // 1. 尋找目標點
         this.historyLayer.eachLayer((layer) => {
-            // 使用 equals 做座標比對，允許極小誤差
             if (layer.getLatLng && layer.getLatLng().equals(target)) {
                 foundLayer = layer;
             }
         });
 
         if (foundLayer) {
-            // 1. 移動地圖並縮放
+            // 2. 如果有上一個開啟的點，先關閉它的 Tooltip
+            if (this.lastFocusedLayer && this.lastFocusedLayer !== foundLayer) {
+                this.lastFocusedLayer.closeTooltip();
+            }
+
+            // 3. 移動視野
             this.map.setView(target, Config.ZOOM_LEVEL);
-            // 2. 打開該點的 Tooltip (模擬 Mouseover)
+            
+            // 4. 開啟新的 Tooltip
             foundLayer.openTooltip();
+
+            // 5. 更新紀錄
+            this.lastFocusedLayer = foundLayer;
         }
     }
 }
