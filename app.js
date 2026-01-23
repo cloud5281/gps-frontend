@@ -582,8 +582,8 @@ class UIManager {
         const valC = parseFloat(elC.value);
         let error = null;
         if (isNaN(valA) || isNaN(valB) || isNaN(valC)) error = "❌ 請填入完整數值";
-        else if (valA >= valB) { elA.classList.add('input-error'); error = "❌ 黃色需大於綠色"; }
-        else if (valB >= valC) { elB.classList.add('input-error'); error = "❌ 橙色需大於黃色"; }
+        else if (valA >= valB) { elA.classList.add('input-error'); error = "❌ 黃色閾值需大於綠色閾值"; }
+        else if (valB >= valC) { elB.classList.add('input-error'); error = "❌ 橙色閾值需大於黃色閾值"; }
 
         if (error) {
             msgBox.innerText = error;
