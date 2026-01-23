@@ -1,5 +1,4 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-// 🔥 修改 1：引入 update 方法
 import { getDatabase, ref, onValue, onChildAdded, set, get, update } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
 
 /**
@@ -306,7 +305,6 @@ class UIManager {
 
                 const uploadData = {};
                 let count = 0;
-                // 🔥 修改 2：記錄最後一筆資料
                 let lastRecord = null;
 
                 for (let i = 1; i < lines.length; i++) {
@@ -328,23 +326,20 @@ class UIManager {
                     if (!isNaN(record.lat) && !isNaN(record.lon)) {
                         const key = `record_${Date.now()}_${i}`;
                         uploadData[key] = record;
-                        lastRecord = record; // 更新最後一筆
+                        lastRecord = record; 
                         count++;
                     }
                 }
 
                 if (count === 0) throw new Error("找不到有效的數據行");
 
-                // 🔥 修改 3：準備批量更新物件
                 const updates = {};
                 updates[`${projectName}/history`] = uploadData;
                 
-                // 如果有資料，同步更新 latest 節點，解決重整後地圖亂跳的問題
                 if (lastRecord) {
                     updates[`${projectName}/latest`] = lastRecord;
                 }
 
-                // 使用 update 一次性寫入
                 update(ref(this.db), updates)
                     .then(() => {
                         const isDifferentProject = (projectName !== Config.dbRootPath);
@@ -728,6 +723,18 @@ async function main() {
     onChildAdded(ref(db, `${Config.dbRootPath}/history`), (snapshot) => {
         if (snapshot.val()) mapManager.addHistoryPoint(snapshot.val(), uiManager.getColor.bind(uiManager));
     });
+
+    // 🔥🔥🔥 核心修改：監聽 Checkbox change 事件，勾選瞬間強制跳轉 🔥🔥🔥
+    const autoCenterBox = document.getElementById('autoCenter');
+    if (autoCenterBox) {
+        autoCenterBox.addEventListener('change', (e) => {
+            if (e.target.checked && lastGpsData && lastGpsData.lat) {
+                // 強制移動到最新位置，並使用設定的 Zoom Level
+                mapManager.updateCurrentPosition(lastGpsData.lat, lastGpsData.lon, true);
+                mapManager.map.setZoom(Config.ZOOM_LEVEL);
+            }
+        });
+    }
 }
 
 main();
