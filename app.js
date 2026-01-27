@@ -563,7 +563,7 @@ class UIManager {
                             alert(`✅ 上傳成功！共 ${count} 筆資料。\n\n系統將自動切換至新專案: ${projectName}`);
                             
                             btn.innerText = "切換中...";
-                            this.setInterfaceMode('switching', "專案切換中...", "gray", "offline");
+                            this.setInterfaceMode('switching', "專案切換中... (約 1 分鐘)", "gray", "offline");
 
                             const updateRef = ref(this.db, `${Config.dbRootPath}/control/config_update`);
                             set(updateRef, { project_name: projectName });
@@ -719,7 +719,7 @@ class UIManager {
 
         if (isProjectChanged) {
             btn.innerText = "切換中...";
-            this.setInterfaceMode('switching', "專案切換中...", "gray", "offline");
+            this.setInterfaceMode('switching', "專案切換中... (約 1 分鐘)", "gray", "offline");
         } else {
             btn.innerText = "更新中...";
         }
@@ -881,7 +881,7 @@ async function main() {
             if (data && (data.state === 'stopped' || data.state === 'active')) {
                 localStorage.removeItem('is_switching');
             } else {
-                uiManager.setInterfaceMode('switching', "專案切換中", "gray", "offline");
+                uiManager.setInterfaceMode('switching', "專案切換中... (約 1 分鐘)", "gray", "offline");
                 uiManager.updateRealtimeData({}, false);
                 return;
             }
@@ -889,7 +889,7 @@ async function main() {
 
         if (!data || data.state === 'offline') {
             if (data && data.state === 'switching') {
-                uiManager.setInterfaceMode('switching', "專案切換中", "gray", "offline");
+                uiManager.setInterfaceMode('switching', "專案切換中... (約 1 分鐘)", "gray", "offline");
             } else {
                 uiManager.setInterfaceMode('offline', "未連接 Controller", "gray", "offline");
             }
@@ -901,7 +901,7 @@ async function main() {
         
         switch (data.state) {
             case 'switching': 
-                uiManager.setInterfaceMode('switching', "專案切換中", "gray", "offline");
+                uiManager.setInterfaceMode('switching', "專案切換中... (約 1 分鐘)", "gray", "offline");
                 break;
 
             case 'stopped': 
