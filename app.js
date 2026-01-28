@@ -42,8 +42,10 @@ const Config = (() => {
  */
 class MapManager {
     constructor() {
-        this.map = L.map('map').setView([25.0330, 121.5654], Config.ZOOM_LEVEL);
-        
+        this.map = L.map('map', {
+            preferCanvas: true // 🔥 開啟 Canvas 模式，大幅提升大量點的渲染效能
+        }).setView([25.0330, 121.5654], Config.ZOOM_LEVEL);
+                
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             attribution: '© OpenStreetMap contributors'
         }).addTo(this.map);
@@ -365,6 +367,17 @@ class UIManager {
         // 🔥 當資料更新時，重置縮放狀態，以免卡在舊的位置 🔥
         this.chart.resetZoom();
     }
+
+    appendChartData(record) {
+    if (!this.chart) return;
+    const label = record.timestamp.split(' ')[1];
+    
+    // Chart.js 支援直接 push 資料而不用重繪整個 array
+    this.chart.data.labels.push(label);
+    this.chart.data.datasets[0].data.push(record.conc);
+    
+    this.chart.update('none'); // 'none' 模式更新更平滑
+}
 
     syncConfigFromBackend(data) {
         if (!data) return;
@@ -842,6 +855,7 @@ async function main() {
     let backendState = 'offline';
     let lastGpsData = null;
 
+    // 1. 監聽後端設定同步
     onValue(ref(db, `${Config.dbRootPath}/settings/current_config`), (snapshot) => {
         if (snapshot.val()) uiManager.syncConfigFromBackend(snapshot.val());
     });
@@ -850,29 +864,63 @@ async function main() {
         uiManager.syncThresholdsFromBackend(snapshot.val());
     });
 
-    onValue(ref(db, `${Config.dbRootPath}/history`), (snapshot) => {
-        if(snapshot.exists()) {
-            uiManager.updateChart(snapshot.val());
-        }
+    // ----------------------------------------------------------------
+    // 🚀 優化核心：歷史資料處理 (Get Once + Listen New)
+    // ----------------------------------------------------------------
+    const historyRef = ref(db, `${Config.dbRootPath}/history`);
+    const processedKeys = new Set(); // 用來記錄已經畫過的資料 Key，防止重複
 
-        if (localStorage.getItem('should_fit_bounds') === 'true' && snapshot.exists()) {
+    // A. 初始載入：只抓一次，效能最好
+    get(historyRef).then((snapshot) => {
+        if (snapshot.exists()) {
             const data = snapshot.val();
-            const keys = Object.keys(data).sort();
             
-            if (keys.length > 0) {
-                const lastKey = keys[keys.length - 1];
-                const lastRecord = data[lastKey];
+            // 1. 一次性更新圖表 (直接畫整張，不閃爍)
+            uiManager.updateChart(data);
 
-                if (lastRecord && lastRecord.lat && lastRecord.lon) {
-                    mapManager.updateCurrentPosition(lastRecord.lat, lastRecord.lon, true);
-                    mapManager.map.setZoom(Config.ZOOM_LEVEL);
+            // 2. 一次性更新地圖並記錄 Key
+            Object.entries(data).forEach(([key, record]) => {
+                processedKeys.add(key); // 記錄下來，之後 onChildAdded 就不會重複處理
+                mapManager.addHistoryPoint(record, uiManager.getColor.bind(uiManager));
+            });
+
+            // 3. 自動縮放視角 (保留原本邏輯：若剛上傳完或重新整理，自動 focus 到最後一點)
+            if (localStorage.getItem('should_fit_bounds') === 'true') {
+                const keys = Object.keys(data).sort();
+                if (keys.length > 0) {
+                    const lastRecord = data[keys[keys.length - 1]];
+                    if (lastRecord && lastRecord.lat) {
+                        mapManager.updateCurrentPosition(lastRecord.lat, lastRecord.lon, true);
+                        mapManager.map.setZoom(Config.ZOOM_LEVEL);
+                    }
                 }
+                localStorage.removeItem('should_fit_bounds');
             }
-            
-            localStorage.removeItem('should_fit_bounds');
         }
+    }).catch((err) => {
+        console.error("載入歷史資料失敗:", err);
     });
 
+    // B. 即時監聽：只處理「新」進來的資料
+    onChildAdded(historyRef, (snapshot) => {
+        const key = snapshot.key;
+        const val = snapshot.val();
+        
+        // 🛑 關鍵檢查：如果這個 Key 已經在上面的 get() 處理過，就直接跳過
+        if (processedKeys.has(key)) return;
+        
+        processedKeys.add(key); // 標記為已處理
+        
+        if (val) {
+            // 1. 地圖加一個點
+            mapManager.addHistoryPoint(val, uiManager.getColor.bind(uiManager));
+            // 2. 圖表加一個點 (使用高效單點更新)
+            uiManager.appendChartData(val); 
+        }
+    });
+    // ----------------------------------------------------------------
+
+    // 3. 監聽系統狀態 (Status)
     onValue(ref(db, `${Config.dbRootPath}/status`), (snapshot) => {
         const data = snapshot.val();
         const isSwitchingLocal = localStorage.getItem('is_switching');
@@ -931,6 +979,7 @@ async function main() {
         }
     });
 
+    // 4. 監聽最新單點 (Latest) - 用於即時顯示數值面板與 Marker 移動
     onValue(ref(db, `${Config.dbRootPath}/latest`), (snapshot) => {
         const data = snapshot.val();
         if (data && data.lat) {
@@ -939,10 +988,8 @@ async function main() {
             if (backendState === 'active') uiManager.updateRealtimeData(data, true);
         }
     });
-    onChildAdded(ref(db, `${Config.dbRootPath}/history`), (snapshot) => {
-        if (snapshot.val()) mapManager.addHistoryPoint(snapshot.val(), uiManager.getColor.bind(uiManager));
-    });
 
+    // 5. 自動置中控制
     const autoCenterBox = document.getElementById('autoCenter');
     if (autoCenterBox) {
         autoCenterBox.addEventListener('change', (e) => {

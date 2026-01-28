@@ -101,6 +101,9 @@ class GPSReader:
 
     def _parse_and_push(self, line):
         """解析 NMEA 並確保一秒一筆放入 Queue"""
+        if not line.startswith('$'):
+            return
+        
         try:
             msg = pynmea2.parse(line)
             if isinstance(msg, pynmea2.types.talker.RMC):
@@ -115,11 +118,17 @@ class GPSReader:
 
             # 檢查秒數是否改變，決定是否塞入 Queue
             curr_t = self.latest_data["timestamp"]
-            if self.latest_data["status"] == "A" and curr_t != self.last_yield_time:
+            if self.latest_data["status"] == "A" and \
+               curr_t != self.last_yield_time and \
+               self.latest_data["lat"] != 0:
                 self.last_yield_time = curr_t
                 self.gps_queue.put(self.latest_data.copy())
-        except:
-            pass
+
+        except pynmea2.ParseError as e:
+            logger.warning(f"GPS NMEA 解析失敗 (Checksum Error?): {e} | 原始資料: {line}")
+            
+        except Exception as e:
+            logger.error(f"GPS 處理未預期錯誤: {e}")
 
     def run(self):
         self.running = True
