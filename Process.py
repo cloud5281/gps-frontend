@@ -37,85 +37,74 @@ class RunProcess:
         self.fb.data_queue = self.cfg.SHARED_QUEUE 
 
     def _queue_merger(self):
-        """負責將 GPS 與 Conc 依照 timestamp 進行對齊"""
-        # --- 1. 緩衝區 (用來放正在等待濃度的 GPS) ---
-        gps_buffer = [] 
-        conc_buffer = []
-        last_valid_conc = 0.0 
-        MAX_WAIT_SECONDS = 3.0  # 設定最大等待秒數
+        """
+        以 GPS 為主觸發，直接取用當前最新的濃度值。
+        """
+        # --- 1. 建立濃度緩存 (Cache) ---
+        # 預設值，避免程式剛啟動還沒收到濃度時會報錯
+        latest_conc_cache = {
+            'val': 0.0,
+            'unit': self.conc.unit if hasattr(self.conc, 'unit') else '',
+            'last_update': 0
+        }
         
+        SENSOR_TIMEOUT_SEC = 3.0
+
         while self.running:
             try:
-                # A. 接收 GPS (timeout 短一點以便檢查 running 狀態)
+                # --- A. 更新濃度緩存 (非阻塞) ---
+                # 使用 while 迴圈把 Queue 裡累積的資料全部讀出來，只保留最後一筆(最新的)
+                has_new_conc = False
+                while not self.conc.conc_queue.empty():
+                    try:
+                        c_data = self.conc.conc_queue.get_nowait()
+                        latest_conc_cache['val'] = c_data['conc']
+                        # 如果 sensor 數據本身有帶單位就更新，沒有就維持設定檔的
+                        if 'unit' in c_data: 
+                            latest_conc_cache['unit'] = c_data['unit']
+                        latest_conc_cache['last_update'] = time.time()
+                        has_new_conc = True
+                    except queue.Empty:
+                        break
+                
+                # if has_new_conc:
+                #     logger.debug(f"濃度更新: {latest_conc_cache['val']}")
+
+                # --- B. 處理 GPS (主要觸發點) ---
+                # 設定 timeout=0.1 讓迴圈可以持續運轉去檢查濃度和停止訊號
                 try:
-                    gps_data = self.gps.gps_queue.get(timeout=0.2)
+                    gps_data = self.gps.gps_queue.get(timeout=0.1)
+                    
+                    # 檢查是否為結束訊號
                     if gps_data is None:
                         if self.running:
                             self.fb.data_queue.put(None)
                         break
-                    gps_data['_arrival_time'] = time.time()
-                    gps_buffer.append(gps_data) # 先放進緩衝區，不急著處理
-                except queue.Empty:
-                    pass # 沒新 GPS 沒關係，繼續往下跑去檢查舊的有沒有對齊
-                
-                # B. 從濃度 Queue 更新資料
-                while not self.conc.conc_queue.empty():
-                    try:
-                        conc_data = self.conc.conc_queue.get_nowait()
-                        conc_buffer.append(conc_data)                            
-                    except queue.Empty:
-                        break
 
-                # C. 配對 (檢查緩衝區)
-                # 我們改為對 gps_buffer 跑迴圈 
-                for gps_point in gps_buffer[:]:
-                    target_time = gps_point['timestamp']
-                    is_matched = False
-                    match_index = -1
+                    # --- C. 合併數據 ---
+                    # 直接將緩存中的濃度填入 GPS 資料
+                    gps_data['conc'] = latest_conc_cache['val']
+                    gps_data['conc_unit'] = latest_conc_cache['unit']
                     
-                    for i, c_data in enumerate(conc_buffer):
-                        if c_data['timestamp'] == target_time:
-                            match_index = i
-                            # ✅ 配對成功
-                            gps_point['conc'] = c_data['conc']
-                            gps_point['conc_unit'] = self.conc.unit 
-                            last_valid_conc = c_data['conc'] # 更新補值用的最後數據
-                            is_matched = True
-                            # 清理：把這個配對點(含)之前的舊濃度都丟掉
-                            conc_buffer = conc_buffer[match_index+1:]
-                            break
-                        elif c_data['timestamp'] > target_time:
-                            # 濃度資料已經比 GPS 新了，代表這筆 GPS 錯過了
-                            break
-                    
-                    if is_matched:
-                        # 情況一：配對成功 -> 送出
-                        if '_arrival_time' in gps_point: del gps_point['_arrival_time'] # 移除內部用的標籤
-                        self.fb.data_queue.put(gps_point)
-                        gps_buffer.remove(gps_point)     
+                    time_diff = time.time() - latest_conc_cache['last_update']
+                    if latest_conc_cache['last_update'] > 0 and time_diff > SENSOR_TIMEOUT_SEC:
+                        # 覆蓋 GPS 的狀態 (原本可能是 'A')，標記為濃度超時
+                        gps_data['status'] = 'Sensor Timeout'
                     else:
-                        # 情況二：檢查超時
-                        waited_time = time.time() - gps_point['_arrival_time'] 
-                        if waited_time > MAX_WAIT_SECONDS:
-                            # ⚠️ 超時了 (等超過3秒) -> 執行補值
-                            gps_point['conc'] = last_valid_conc
-                            gps_point['conc_unit'] = self.conc.unit 
-                            gps_point['status'] = 'Filled(Timeout)'      
-                            if '_arrival_time' in gps_point: del gps_point['_arrival_time']
-                            self.fb.data_queue.put(gps_point)
-                            gps_buffer.remove(gps_point)
-                        else:
-                            # 情況三：還沒超時 -> 什麼都不做
-                            pass
-                
-                # 清理過期濃度
-                if len(conc_buffer) > 20:
-                    conc_buffer.pop(0)
+                        pass
+
+                    # --- D. 送出資料 ---
+                    self.fb.data_queue.put(gps_data)
+
+                except queue.Empty:
+                    # GPS 沒資料是正常的 (頻率通常較慢)，繼續下一輪迴圈去收濃度
+                    pass
 
             except Exception as e:
-                logger.error(f"合併錯誤: {e}")
-                pass
+                logger.error(f"合併程序錯誤: {e}")
+                time.sleep(1) # 出錯時暫停一下，避免 CPU 飆高
 
+        # 確保結束時發送停止訊號
         if self.running:
             self.fb.data_queue.put(None)
 
