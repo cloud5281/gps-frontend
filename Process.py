@@ -3,6 +3,7 @@ import threading
 import queue
 import time
 
+from datetime import datetime
 from Procedure.GPSReader import GPSReader
 from Procedure.ConcentrationReader import ConcentrationReader
 from Procedure.FirebaseManager import FirebaseManager
@@ -48,7 +49,8 @@ class RunProcess:
             'last_update': 0
         }
         
-        SENSOR_TIMEOUT_SEC = 3.0
+        SENSOR_TIMEOUT_SEC = 1.0
+        last_upload_time = time.time()
 
         while self.running:
             try:
@@ -90,15 +92,29 @@ class RunProcess:
                     if latest_conc_cache['last_update'] > 0 and time_diff > SENSOR_TIMEOUT_SEC:
                         # 覆蓋 GPS 的狀態 (原本可能是 'A')，標記為濃度超時
                         gps_data['status'] = 'Sensor Timeout'
-                    else:
-                        pass
-
+                        gps_data['conc'] = 0
                     # --- D. 送出資料 ---
                     self.fb.data_queue.put(gps_data)
+                    last_upload_time = time.time()
 
                 except queue.Empty:
                     # GPS 沒資料是正常的 (頻率通常較慢)，繼續下一輪迴圈去收濃度
-                    pass
+                    if time.time() - last_upload_time >= 1.0:
+                        no_gps_data = {
+                            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                            "lat": None,  # 前端會過濾掉 None 的點，不會畫在地圖上
+                            "lon": None,
+                            "alt": 0,
+                            "status": "GPS Lost", # 標記狀態
+                            "conc": latest_conc_cache['val'],
+                            "conc_unit": latest_conc_cache['unit']
+                        }
+                        time_diff = time.time() - latest_conc_cache['last_update']
+                        if latest_conc_cache['last_update'] > 0 and time_diff > SENSOR_TIMEOUT_SEC:
+                            no_gps_data['status'] = 'All Lost' # GPS 和 Sensor 都沒了
+
+                        self.fb.data_queue.put(no_gps_data)
+                        last_upload_time = time.time()
 
             except Exception as e:
                 logger.error(f"合併程序錯誤: {e}")
