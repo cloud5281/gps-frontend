@@ -352,6 +352,7 @@ async function main() {
     const uiManager = new UIManager(mapManager, db);
     let backendState = 'offline';
     let lastGpsData = null;
+    let lastValidGpsData = null;
 
     onValue(ref(db, `${Config.dbRootPath}/settings/current_config`), (snapshot) => { if (snapshot.val()) uiManager.syncConfigFromBackend(snapshot.val()); });
     onValue(ref(db, `${Config.dbRootPath}/settings/thresholds`), (snapshot) => { uiManager.syncThresholdsFromBackend(snapshot.val()); });
@@ -399,6 +400,9 @@ async function main() {
         const data = snapshot.val();
         if (data) {
             lastGpsData = data;
+            if (data.lat !== null && data.lon !== null && data.lat !== undefined && data.lon !== undefined) {
+                lastValidGpsData = data;
+            }
             mapManager.updateCurrentPosition(data.lat, data.lon, document.getElementById('autoCenter').checked);
             // 只要不是 offline 或 stopped，就強制更新面板 (由 updateRealtimeData 內部決定顯不顯示)
             if (backendState !== 'offline' && backendState !== 'stopped') {
@@ -409,7 +413,14 @@ async function main() {
 
     onChildAdded(ref(db, `${Config.dbRootPath}/history`), (snapshot) => { if (snapshot.val()) mapManager.addHistoryPoint(snapshot.val(), uiManager.getColor.bind(uiManager)); });
     const autoCenterBox = document.getElementById('autoCenter');
-    if (autoCenterBox) { autoCenterBox.addEventListener('change', (e) => { if (e.target.checked && lastGpsData && lastGpsData.lat) { mapManager.updateCurrentPosition(lastGpsData.lat, lastGpsData.lon, true); mapManager.map.setZoom(Config.ZOOM_LEVEL); } }); }
+    if (autoCenterBox) { 
+        autoCenterBox.addEventListener('change', (e) => { 
+            if (e.target.checked && lastValidGpsData) { 
+                mapManager.updateCurrentPosition(lastValidGpsData.lat, lastValidGpsData.lon, true); 
+                mapManager.map.setZoom(Config.ZOOM_LEVEL); 
+            } 
+        }); 
+    }
 }
 
 main();

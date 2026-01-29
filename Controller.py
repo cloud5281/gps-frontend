@@ -169,7 +169,7 @@ class SystemController:
                 if not (self.process and self.process.running):
                     db.reference(f'{new_project_name}/status').set({
                         'state': 'stopped',
-                        'message': '就緒'
+                        'message': '就緒，請按下開始按鈕開始紀錄'
                     })
             else:
                 if self.process and self.process.running:
