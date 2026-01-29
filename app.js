@@ -407,10 +407,10 @@ class UIManager {
         // 檢查邏輯：綠 < 黃 < 橙
         else if (valA >= valB) {
              elA.classList.add('input-error');
-             error = "❌ 綠色需小於黃色";
+             error = "❌ 綠色閾值需小於黃色閾值";
         } else if (valB >= valC) {
              elB.classList.add('input-error'); 
-             error = "❌ 黃色需小於橙色";
+             error = "❌ 黃色閾值需小於橙色閾值";
         }
 
         if (error) {
