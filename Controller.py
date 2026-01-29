@@ -130,7 +130,7 @@ class SystemController:
                 self.logger.info(f"🔜 預先初始化新專案 ({new_project_name}) 狀態...")
                 db.reference(f'{new_project_name}/status').set({
                     'state': 'switching', 
-                    'message': '專案切換中...'
+                    'message': '專案切換中... (約 1 分鐘)'
                 })
             else:
                 self.logger.info(f"📝 僅更新參數配置...")

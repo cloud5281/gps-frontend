@@ -63,7 +63,7 @@ class MapManager {
             const circle = L.circleMarker(pos, { stroke: false, fillColor: color, fillOpacity: 0.9, radius: 8 });
             circle.concValue = data.conc;
             const unit = data.conc_unit || Config.concUnit;
-            const tooltipHtml = `<div><span>⏰:</span> ${data.timestamp}<br><span>📍:</span> ${data.lon.toFixed(6)}, ${data.lat.toFixed(6)}<br><span>🧪:</span> ${data.conc} ${unit}</div>`;
+            const tooltipHtml = `<div><span>⏰時間:</span> ${data.timestamp}<br><span>📍經緯:</span> ${data.lon.toFixed(6)}, ${data.lat.toFixed(6)}<br><span>🧪濃度:</span> ${data.conc} ${unit}</div>`;
             circle.bindTooltip(tooltipHtml, { permanent: false, direction: 'top', className: 'custom-tooltip', offset: [0, -8] });
             this.historyLayer.addLayer(circle);
         }
@@ -160,13 +160,26 @@ class UIManager {
             container.style.marginTop = '12px';
             container.style.paddingTop = '12px';
             container.style.borderTop = '1px solid #eee';
+            
             const headerDiv = document.createElement('div');
             headerDiv.className = 'section-header'; 
+            
+            // 標題
             const titleSpan = document.createElement('span');
             titleSpan.innerText = "歷史濃度趨勢"; 
             this.chartTitleTextEl = titleSpan;
             headerDiv.appendChild(titleSpan);
+
+            const noteSpan = document.createElement('span');
+            noteSpan.innerText = " (點選圖表上的點可察看詳細地圖資訊)";
+            noteSpan.style.fontSize = "12px";
+            noteSpan.style.color = "#999";
+            noteSpan.style.fontWeight = "normal";
+            noteSpan.style.marginLeft = "8px";
+            headerDiv.appendChild(noteSpan);
+
             container.appendChild(headerDiv);
+            
             const canvasWrapper = document.createElement('div');
             canvasWrapper.style.position = 'relative';
             canvasWrapper.style.height = '180px'; 
@@ -197,12 +210,9 @@ class UIManager {
                     backgroundColor: 'rgba(0, 123, 255, 0.1)',
                     borderWidth: 2,
                     tension: 0.3,
-                    
-                    // 🔥🔥🔥 修改 1：加大感應區 🔥🔥🔥
-                    pointRadius: 0,           // 平常不顯示點
-                    pointHitRadius: 25,       // 加大感應範圍 (好點很多)
-                    pointHoverRadius: 6,      // 滑鼠移上去時顯示點
-                    
+                    pointRadius: 0,
+                    pointHitRadius: 25,  // 好點選
+                    pointHoverRadius: 6,
                     fill: true
                 }]
             },
@@ -210,14 +220,7 @@ class UIManager {
                 responsive: true, 
                 maintainAspectRatio: false, 
                 scales: { x: { display: true, ticks: { display: false } }, y: { beginAtZero: true } },
-                
-                // 🔥🔥🔥 修改 2：優化互動模式 🔥🔥🔥
-                interaction: {
-                    mode: 'nearest',  // 靠近就觸發
-                    axis: 'x',        // 鎖定 X 軸 (時間軸) 搜尋
-                    intersect: false  // 不需要精準踩在點上
-                },
-                
+                interaction: { mode: 'nearest', axis: 'x', intersect: false }, // 容易觸發
                 plugins: {
                     legend: { display: false },
                     zoom: { zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'x' }, pan: { enabled: true, mode: 'x' }, limits: { x: { min: 'original', max: 'original' } } }
@@ -269,16 +272,30 @@ class UIManager {
         this.els.btnOpenSettings.addEventListener('click', () => { this.fillSettingsInputs(); this.els.modal.classList.remove('hidden'); });
         this.els.btnCloseModal.addEventListener('click', () => this.els.modal.classList.add('hidden'));
         this.els.btnSaveBackend.addEventListener('click', () => this.saveBackendSettings());
+        
+        // 閾值設定框: Enter 存檔
         Object.values(this.els.inputs).forEach(input => {
             input.addEventListener('blur', () => this.saveThresholdSettings());
             input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { input.blur(); this.saveThresholdSettings(); } });
         });
+
+        Object.values(this.els.backendInputs).forEach(input => {
+            if (input) {
+                input.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        input.blur(); // 解除焦點
+                        this.saveBackendSettings(); // 觸發儲存
+                    }
+                });
+            }
+        });
+
         this.els.btnStart.addEventListener('click', () => this.toggleRecordingCommand());
         this.els.btnUpload.addEventListener('click', () => this.triggerUploadProcess());
         this.els.btnDownload.addEventListener('click', () => this.downloadHistoryAsCSV());
     }
 
-    // 嚴格顯示邏輯 (根據 status)
     updateRealtimeData(data) {
         if (!data) {
             this.els.coords.innerText = "-";
@@ -457,6 +474,7 @@ async function main() {
 
             mapManager.updateCurrentPosition(data.lat, data.lon, document.getElementById('autoCenter').checked);
             
+            // 只要後端有在送資料，就更新面板
             if (backendState !== 'offline' && backendState !== 'stopped') {
                 uiManager.updateRealtimeData(data);
             }
