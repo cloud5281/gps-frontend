@@ -7,6 +7,7 @@ from datetime import datetime
 from Procedure.GPSReader import GPSReader
 from Procedure.ConcentrationReader import ConcentrationReader
 from Procedure.FirebaseManager import FirebaseManager
+from Procedure.BackupManager import BackupManager
 
 logger = logging.getLogger(__name__)
 
@@ -15,130 +16,156 @@ class RunProcess:
         self.cfg = cfg
         self.running = False
 
-        # 核心模組初始化
         self.gps = GPSReader()
         self.conc = ConcentrationReader()
         self.fb = FirebaseManager(
             key_path=self.cfg.FIREBASE_KEY, 
             db_url=self.cfg.DB_URL
         )
+        self.backup = BackupManager(self.cfg.PROJECT_NAME)
 
-        """運行參數 (在前面給定的參數檔案內修改)"""     
-        # GPSReader 參數設定
+        self.is_backup_started = False
+
         self.gps.ip = self.cfg.GPS_IP
         self.gps.port = self.cfg.GPS_PORT  
         self.gps.gps_queue = self.cfg.GPS_QUEUE
 
-        # ConcentrationReader 參數設定
         self.conc.unit = self.cfg.CONC_UNIT
         self.conc.conc_queue = self.cfg.CONC_QUEUE 
 
-        # FirebaseManager 參數設定
         self.fb.project_name = self.cfg.PROJECT_NAME
         self.fb.data_queue = self.cfg.SHARED_QUEUE 
 
+    def _ensure_backup_active(self):
+        if not self.is_backup_started:
+            try:
+                self.backup.start()
+                self.is_backup_started = True
+            except Exception as e:
+                logger.error(f"啟動備份失敗: {e}")
+
     def _queue_merger(self):
-        """
-        以 GPS 為主觸發，直接取用當前最新的濃度值。
-        """
-        # --- 1. 建立濃度緩存 (Cache) ---
-        # 預設值，避免程式剛啟動還沒收到濃度時會報錯
         latest_conc_cache = {
             'val': 0.0,
             'unit': self.conc.unit if hasattr(self.conc, 'unit') else '',
             'last_update': 0
         }
         
-        SENSOR_TIMEOUT_SEC = 1.0
+        SENSOR_TIMEOUT_SEC = 2.0
+        
+        last_gps_arrival_time = time.time()
         last_upload_time = time.time()
+        GPS_GRACE_PERIOD = 2.0 
+
+        # 🔥 新增：用來記錄上一筆資料的時間字串 (例如 "09:24:54")
+        last_processed_ts = ""
 
         while self.running:
             try:
-                # --- A. 更新濃度緩存 (非阻塞) ---
-                # 使用 while 迴圈把 Queue 裡累積的資料全部讀出來，只保留最後一筆(最新的)
-                has_new_conc = False
+                # --- A. 更新濃度緩存 ---
                 while not self.conc.conc_queue.empty():
                     try:
                         c_data = self.conc.conc_queue.get_nowait()
                         latest_conc_cache['val'] = c_data['conc']
-                        # 如果 sensor 數據本身有帶單位就更新，沒有就維持設定檔的
                         if 'unit' in c_data: 
                             latest_conc_cache['unit'] = c_data['unit']
                         latest_conc_cache['last_update'] = time.time()
-                        has_new_conc = True
                     except queue.Empty:
                         break
                 
-                # if has_new_conc:
-                #     logger.debug(f"濃度更新: {latest_conc_cache['val']}")
-
-                # --- B. 處理 GPS (主要觸發點) ---
-                # 設定 timeout=0.1 讓迴圈可以持續運轉去檢查濃度和停止訊號
+                # --- B. 處理 GPS ---
                 try:
                     gps_data = self.gps.gps_queue.get(timeout=0.1)
                     
-                    # 檢查是否為結束訊號
                     if gps_data is None:
-                        if self.running:
-                            self.fb.data_queue.put(None)
+                        if self.running: self.fb.data_queue.put(None)
                         break
 
-                    # --- C. 合併數據 ---
-                    # 直接將緩存中的濃度填入 GPS 資料
+                    # 🔥🔥🔥 修正重點：過濾重複時間戳 🔥🔥🔥
+                    # 如果這筆資料的時間跟上一筆一樣 (都是 "09:24:54")，就直接丟棄
+                    current_ts = gps_data.get('timestamp', '')
+                    if current_ts == last_processed_ts:
+                        continue 
+                    
+                    # 更新紀錄，讓下一筆跟這筆比
+                    last_processed_ts = current_ts
+
+                    # === GPS 正常接收 ===
                     gps_data['conc'] = latest_conc_cache['val']
                     gps_data['conc_unit'] = latest_conc_cache['unit']
                     
                     time_diff = time.time() - latest_conc_cache['last_update']
                     if latest_conc_cache['last_update'] > 0 and time_diff > SENSOR_TIMEOUT_SEC:
-                        # 覆蓋 GPS 的狀態 (原本可能是 'A')，標記為濃度超時
                         gps_data['status'] = 'Sensor Timeout'
                         gps_data['conc'] = 0
-                    # --- D. 送出資料 ---
+                    
                     self.fb.data_queue.put(gps_data)
-                    last_upload_time = time.time()
+                    
+                    self._ensure_backup_active()
+                    self.backup.write(gps_data)
+                    
+                    # 更新系統計時器
+                    current_time = time.time()
+                    last_gps_arrival_time = current_time 
+                    last_upload_time = current_time      
 
                 except queue.Empty:
-                    # GPS 沒資料是正常的 (頻率通常較慢)，繼續下一輪迴圈去收濃度
-                    if time.time() - last_upload_time >= 1.0:
+                    current_time = time.time()
+                    
+                    is_gps_really_lost = (current_time - last_gps_arrival_time > GPS_GRACE_PERIOD)
+                    is_time_to_fill = (current_time - last_upload_time >= 1.0)
+
+                    if is_gps_really_lost and is_time_to_fill:
+                        # 產生現在時間字串
+                        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        
+                        # 🔥 即使是補位資料，也檢查一下是否跟上一筆重複 (極端情況)
+                        if now_str == last_processed_ts:
+                            continue
+
+                        last_processed_ts = now_str # 更新紀錄
+
                         no_gps_data = {
-                            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                            "lat": None,  # 前端會過濾掉 None 的點，不會畫在地圖上
+                            "timestamp": now_str,
+                            "lat": None,
                             "lon": None,
                             "alt": 0,
-                            "status": "GPS Lost", # 標記狀態
+                            "status": "GPS Lost",
                             "conc": latest_conc_cache['val'],
                             "conc_unit": latest_conc_cache['unit']
                         }
-                        time_diff = time.time() - latest_conc_cache['last_update']
+                        
+                        time_diff = current_time - latest_conc_cache['last_update']
                         if latest_conc_cache['last_update'] > 0 and time_diff > SENSOR_TIMEOUT_SEC:
-                            no_gps_data['status'] = 'All Lost' # GPS 和 Sensor 都沒了
+                            no_gps_data['status'] = 'All Lost'
 
                         self.fb.data_queue.put(no_gps_data)
-                        last_upload_time = time.time()
+                        
+                        self._ensure_backup_active()
+                        self.backup.write(no_gps_data)
+                        
+                        last_upload_time = current_time
 
             except Exception as e:
                 logger.error(f"合併程序錯誤: {e}")
-                time.sleep(1) # 出錯時暫停一下，避免 CPU 飆高
+                time.sleep(1)
 
-        # 確保結束時發送停止訊號
         if self.running:
             self.fb.data_queue.put(None)
 
     def stop(self):
-        """停止所有子程序"""
         self.running = False
-        
-        # 1. 停止 Reader
         self.gps.stop()
         self.conc.stop()    
-        # 2. 停止 Firebase 
         self.fb.stop()
+        if self.is_backup_started:
+            self.backup.stop()
+            self.is_backup_started = False
    
     def run(self):
         self.running = True
         logger.info("---程式開始---")
 
-        # 1. 啟動 Reader
         self.gps.run()      
         self.conc.run()
 
@@ -146,7 +173,7 @@ class RunProcess:
         merger_thread.start()
 
         try:
-            self.fb.run() # 這裡會卡住直到停止訊號出現
+            self.fb.run()
         finally:
             self.stop()   
-            self.running = False 
+            self.running = False
