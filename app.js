@@ -249,7 +249,7 @@ class UIManager {
         this.els.btnDownload.addEventListener('click', () => this.downloadHistoryAsCSV());
     }
 
-    // 🔥🔥🔥 這裡就是你要的：嚴格按照 Status 來顯示 🔥🔥🔥
+    // 嚴格顯示邏輯 (根據 status)
     updateRealtimeData(data) {
         if (!data) {
             this.els.coords.innerText = "-";
@@ -259,8 +259,7 @@ class UIManager {
 
         const status = data.status;
 
-        // --- 1. 座標顯示邏輯 (嚴格遵守 Status) ---
-        // 只有在狀態正常時，才允許顯示座標
+        // 1. 座標顯示
         if (status === 'GPS Lost' || status === 'All Lost' || status === 'V') {
             this.els.coords.innerText = "GPS 訊號中斷"; 
         } else if (data.lat !== undefined && data.lat !== null) {
@@ -269,13 +268,12 @@ class UIManager {
             this.els.coords.innerText = "-";
         }
 
-        // --- 2. 濃度顯示邏輯 (嚴格遵守 Status) ---
-        // 只有在狀態正常時，才允許顯示濃度
+        // 2. 濃度顯示
         if (status === 'Sensor Timeout' || status === 'All Lost') {
             this.els.conc.innerText = "濃度訊號中斷";
             this.els.conc.style.color = 'gray';
         } else if (data.conc !== undefined && data.conc !== null) {
-            const unit = data.conc_unit || Config.concUnit;
+            const unit = data.conc_unit || Config.concUnit || "";
             this.els.conc.innerText = `${data.conc} ${unit}`;
             this.els.conc.style.color = (data.conc >= this.thresholds.c) ? 'red' : 'black';
         } else {
@@ -352,13 +350,38 @@ async function main() {
     const uiManager = new UIManager(mapManager, db);
     let backendState = 'offline';
     let lastGpsData = null;
-    let lastValidGpsData = null;
+    // 🔥🔥🔥 修復：記憶最後已知有效位置 🔥🔥🔥
+    let lastValidPosition = null; 
 
     onValue(ref(db, `${Config.dbRootPath}/settings/current_config`), (snapshot) => { if (snapshot.val()) uiManager.syncConfigFromBackend(snapshot.val()); });
     onValue(ref(db, `${Config.dbRootPath}/settings/thresholds`), (snapshot) => { uiManager.syncThresholdsFromBackend(snapshot.val()); });
-    onValue(ref(db, `${Config.dbRootPath}/history`), (snapshot) => { if(snapshot.exists()) uiManager.updateChart(snapshot.val()); if (localStorage.getItem('should_fit_bounds') === 'true' && snapshot.exists()) { const data = snapshot.val(); const keys = Object.keys(data).sort(); if (keys.length > 0) { const last = data[keys[keys.length - 1]]; if (last && last.lat) { mapManager.updateCurrentPosition(last.lat, last.lon, true); mapManager.map.setZoom(Config.ZOOM_LEVEL); } } localStorage.removeItem('should_fit_bounds'); } });
+    
+    // 監聽歷史數據 (用於圖表 + 尋找最後有效位置)
+    onValue(ref(db, `${Config.dbRootPath}/history`), (snapshot) => { 
+        if(snapshot.exists()) {
+            const data = snapshot.val();
+            uiManager.updateChart(data);
+            
+            // 🔥 從歷史資料中找回最後一個有座標的點 (防呆)
+            const sorted = Object.values(data).sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+            for (let i = sorted.length - 1; i >= 0; i--) {
+                if (sorted[i].lat != null && sorted[i].lon != null) {
+                    lastValidPosition = { lat: sorted[i].lat, lon: sorted[i].lon };
+                    break;
+                }
+            }
 
-    // 🔥 狀態監聽與燈號邏輯
+            // 剛載入時，如果設定為需要自動縮放，就飛過去
+            if (localStorage.getItem('should_fit_bounds') === 'true') { 
+                if (lastValidPosition) {
+                    mapManager.updateCurrentPosition(lastValidPosition.lat, lastValidPosition.lon, true);
+                    mapManager.map.setZoom(Config.ZOOM_LEVEL);
+                }
+                localStorage.removeItem('should_fit_bounds'); 
+            }
+        }
+    });
+
     onValue(ref(db, `${Config.dbRootPath}/status`), (snapshot) => {
         const data = snapshot.val();
         if (localStorage.getItem('is_switching') && data && (data.state === 'stopped' || data.state === 'active')) localStorage.removeItem('is_switching');
@@ -372,7 +395,6 @@ async function main() {
         backendState = data.state;
         const msg = data.message || "未知狀態";
 
-        // 依據新定義的狀態代碼顯示燈號與文字
         switch (data.state) {
             case 'active':
                 uiManager.setInterfaceMode('recording', msg, '#28a745', 'active');
@@ -400,11 +422,15 @@ async function main() {
         const data = snapshot.val();
         if (data) {
             lastGpsData = data;
-            if (data.lat !== null && data.lon !== null && data.lat !== undefined && data.lon !== undefined) {
-                lastValidGpsData = data;
+            
+            // 🔥 如果有有效座標，也更新 lastValidPosition
+            if (data.lat != null && data.lon != null) {
+                lastValidPosition = { lat: data.lat, lon: data.lon };
             }
+
             mapManager.updateCurrentPosition(data.lat, data.lon, document.getElementById('autoCenter').checked);
-            // 只要不是 offline 或 stopped，就強制更新面板 (由 updateRealtimeData 內部決定顯不顯示)
+            
+            // 只要後端有在送資料，就更新面板
             if (backendState !== 'offline' && backendState !== 'stopped') {
                 uiManager.updateRealtimeData(data);
             }
@@ -412,13 +438,20 @@ async function main() {
     });
 
     onChildAdded(ref(db, `${Config.dbRootPath}/history`), (snapshot) => { if (snapshot.val()) mapManager.addHistoryPoint(snapshot.val(), uiManager.getColor.bind(uiManager)); });
+    
     const autoCenterBox = document.getElementById('autoCenter');
     if (autoCenterBox) { 
         autoCenterBox.addEventListener('change', (e) => { 
-            if (e.target.checked && lastValidGpsData) { 
-                mapManager.updateCurrentPosition(lastValidGpsData.lat, lastValidGpsData.lon, true); 
-                mapManager.map.setZoom(Config.ZOOM_LEVEL); 
-            } 
+            if (e.target.checked) {
+                // 🔥 優先用最新的，沒有就用歷史最後一筆
+                if (lastGpsData && lastGpsData.lat != null) {
+                    mapManager.updateCurrentPosition(lastGpsData.lat, lastGpsData.lon, true);
+                    mapManager.map.setZoom(Config.ZOOM_LEVEL);
+                } else if (lastValidPosition) {
+                    mapManager.updateCurrentPosition(lastValidPosition.lat, lastValidPosition.lon, true);
+                    mapManager.map.setZoom(Config.ZOOM_LEVEL);
+                }
+            }
         }); 
     }
 }

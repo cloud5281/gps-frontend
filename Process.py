@@ -14,16 +14,24 @@ class RunProcess:
     def __init__(self, cfg):
         self.cfg = cfg
         self.running = False
+
         self.gps = GPSReader()
         self.conc = ConcentrationReader()
-        self.fb = FirebaseManager(key_path=self.cfg.FIREBASE_KEY, db_url=self.cfg.DB_URL)
+        self.fb = FirebaseManager(
+            key_path=self.cfg.FIREBASE_KEY, 
+            db_url=self.cfg.DB_URL
+        )
         self.backup = BackupManager(self.cfg.PROJECT_NAME)
+
         self.is_backup_started = False
+
         self.gps.ip = self.cfg.GPS_IP
         self.gps.port = self.cfg.GPS_PORT  
         self.gps.gps_queue = self.cfg.GPS_QUEUE
+
         self.conc.unit = self.cfg.CONC_UNIT
         self.conc.conc_queue = self.cfg.CONC_QUEUE 
+
         self.fb.project_name = self.cfg.PROJECT_NAME
         self.fb.data_queue = self.cfg.SHARED_QUEUE 
 
@@ -36,7 +44,20 @@ class RunProcess:
                 logger.error(f"啟動備份失敗: {e}")
 
     def _queue_merger(self):
-        latest_conc_cache = {'val': 0.0, 'unit': self.conc.unit if hasattr(self.conc, 'unit') else '', 'last_update': 0}
+        # 1. 濃度緩存
+        latest_conc_cache = {
+            'val': 0.0, 
+            'unit': self.conc.unit if hasattr(self.conc, 'unit') else '', 
+            'last_update': 0
+        }
+        
+        # 🔥 2. GPS 座標緩存 (新增這裡)
+        # 用來記住最後一次有效的經緯度
+        last_valid_gps = {
+            'lat': None,
+            'lon': None
+        }
+
         SENSOR_TIMEOUT_SEC = 2.0
         last_gps_arrival_time = time.time()
         last_upload_time = time.time()
@@ -45,26 +66,39 @@ class RunProcess:
 
         while self.running:
             try:
+                # --- A. 更新濃度緩存 ---
                 while not self.conc.conc_queue.empty():
                     try:
                         c_data = self.conc.conc_queue.get_nowait()
                         latest_conc_cache['val'] = c_data['conc']
                         if 'unit' in c_data: latest_conc_cache['unit'] = c_data['unit']
                         latest_conc_cache['last_update'] = time.time()
-                    except queue.Empty: break
+                    except queue.Empty:
+                        break
                 
+                # --- B. 處理 GPS ---
                 try:
                     gps_data = self.gps.gps_queue.get(timeout=0.1)
+                    
                     if gps_data is None:
                         if self.running: self.fb.data_queue.put(None)
                         break
 
+                    # 過濾重複時間戳
                     current_ts = gps_data.get('timestamp', '')
-                    if current_ts == last_processed_ts: continue 
+                    if current_ts == last_processed_ts:
+                        continue 
                     last_processed_ts = current_ts
+
+                    # === GPS 正常接收 ===
+                    # 🔥 更新有效座標緩存
+                    if gps_data['lat'] is not None and gps_data['lon'] is not None:
+                        last_valid_gps['lat'] = gps_data['lat']
+                        last_valid_gps['lon'] = gps_data['lon']
 
                     gps_data['conc'] = latest_conc_cache['val']
                     gps_data['conc_unit'] = latest_conc_cache['unit']
+                    
                     time_diff = time.time() - latest_conc_cache['last_update']
                     if latest_conc_cache['last_update'] > 0 and time_diff > SENSOR_TIMEOUT_SEC:
                         gps_data['status'] = 'Sensor Timeout'
@@ -80,12 +114,29 @@ class RunProcess:
 
                 except queue.Empty:
                     current_time = time.time()
-                    if (current_time - last_gps_arrival_time > GPS_GRACE_PERIOD) and (current_time - last_upload_time >= 1.0):
+                    
+                    is_gps_really_lost = (current_time - last_gps_arrival_time > GPS_GRACE_PERIOD)
+                    is_time_to_fill = (current_time - last_upload_time >= 1.0)
+
+                    if is_gps_really_lost and is_time_to_fill:
                         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                        if now_str == last_processed_ts: continue
+                        
+                        if now_str == last_processed_ts:
+                            continue
                         last_processed_ts = now_str
 
-                        no_gps_data = { "timestamp": now_str, "lat": None, "lon": None, "alt": 0, "status": "GPS Lost", "conc": latest_conc_cache['val'], "conc_unit": latest_conc_cache['unit'] }
+                        # 🔥 使用最後已知座標 (而不是 None)
+                        # 這樣地圖上的人偶會停在原地，不會消失
+                        no_gps_data = {
+                            "timestamp": now_str,
+                            "lat": last_valid_gps['lat'], # 取用緩存
+                            "lon": last_valid_gps['lon'], # 取用緩存
+                            "alt": 0,
+                            "status": "GPS Lost",
+                            "conc": latest_conc_cache['val'],
+                            "conc_unit": latest_conc_cache['unit']
+                        }
+                        
                         time_diff = current_time - latest_conc_cache['last_update']
                         if latest_conc_cache['last_update'] > 0 and time_diff > SENSOR_TIMEOUT_SEC:
                             no_gps_data['status'] = 'All Lost'
@@ -93,13 +144,15 @@ class RunProcess:
                         self.fb.data_queue.put(no_gps_data)
                         self._ensure_backup_active()
                         self.backup.write(no_gps_data)
+                        
                         last_upload_time = current_time
 
             except Exception as e:
                 logger.error(f"合併程序錯誤: {e}")
                 time.sleep(1)
 
-        if self.running: self.fb.data_queue.put(None)
+        if self.running:
+            self.fb.data_queue.put(None)
 
     def stop(self):
         self.running = False
@@ -113,10 +166,13 @@ class RunProcess:
     def run(self):
         self.running = True
         logger.info("---程式開始---")
+
         self.gps.run()      
         self.conc.run()
+
         merger_thread = threading.Thread(target=self._queue_merger, daemon=True)
         merger_thread.start()
+
         try:
             self.fb.run()
         finally:
