@@ -166,6 +166,7 @@ class UIManager {
             conc: document.getElementById('concentration'),
             statusDot: document.getElementById('status-dot'),
             statusText: document.getElementById('connection-text'),
+            thresholdTitle: document.getElementById('threshold-title-text'),
             autoCenter: document.getElementById('autoCenter'),
             modal: document.getElementById('settings-modal'),
             btnOpenSettings: document.getElementById('btn-open-settings'),
@@ -389,10 +390,14 @@ class UIManager {
             this.fillSettingsInputs();
         }
 
-        // 🔥🔥🔥 這裡就是你要的：同步時加上 (單位) 🔥🔥🔥
         if (this.chartTitleTextEl) {
             const unitText = Config.concUnit ? ` (${Config.concUnit})` : "";
             this.chartTitleTextEl.innerText = `歷史濃度趨勢${unitText}`;
+        }
+
+        if (this.els.thresholdTitle) {
+            const unitText = Config.concUnit ? ` (${Config.concUnit})` : "";
+            this.els.thresholdTitle.innerText = `濃度閾值設定${unitText}`;
         }
     }
 
