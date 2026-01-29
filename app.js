@@ -164,12 +164,12 @@ class UIManager {
             const headerDiv = document.createElement('div');
             headerDiv.className = 'section-header'; 
             
-            // 標題
             const titleSpan = document.createElement('span');
             titleSpan.innerText = "歷史濃度趨勢"; 
             this.chartTitleTextEl = titleSpan;
             headerDiv.appendChild(titleSpan);
 
+            // 灰色提示小字
             const noteSpan = document.createElement('span');
             noteSpan.innerText = " (點選圖表上的點可察看詳細地圖資訊)";
             noteSpan.style.fontSize = "12px";
@@ -211,7 +211,7 @@ class UIManager {
                     borderWidth: 2,
                     tension: 0.3,
                     pointRadius: 0,
-                    pointHitRadius: 25,  // 好點選
+                    pointHitRadius: 25, 
                     pointHoverRadius: 6,
                     fill: true
                 }]
@@ -220,7 +220,7 @@ class UIManager {
                 responsive: true, 
                 maintainAspectRatio: false, 
                 scales: { x: { display: true, ticks: { display: false } }, y: { beginAtZero: true } },
-                interaction: { mode: 'nearest', axis: 'x', intersect: false }, // 容易觸發
+                interaction: { mode: 'nearest', axis: 'x', intersect: false }, 
                 plugins: {
                     legend: { display: false },
                     zoom: { zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'x' }, pan: { enabled: true, mode: 'x' }, limits: { x: { min: 'original', max: 'original' } } }
@@ -279,6 +279,7 @@ class UIManager {
             input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { input.blur(); this.saveThresholdSettings(); } });
         });
 
+        // 參數設定框: Enter 存檔
         Object.values(this.els.backendInputs).forEach(input => {
             if (input) {
                 input.addEventListener('keydown', (e) => {
@@ -305,7 +306,6 @@ class UIManager {
 
         const status = data.status;
 
-        // 1. 座標顯示
         if (status === 'GPS Lost' || status === 'All Lost' || status === 'V') {
             this.els.coords.innerText = "GPS 訊號中斷"; 
         } else if (data.lat !== undefined && data.lat !== null) {
@@ -314,7 +314,6 @@ class UIManager {
             this.els.coords.innerText = "-";
         }
 
-        // 2. 濃度顯示
         if (status === 'Sensor Timeout' || status === 'All Lost') {
             this.els.conc.innerText = "濃度訊號中斷";
             this.els.conc.style.color = 'gray';
@@ -385,7 +384,59 @@ class UIManager {
     toggleRecordingCommand() { set(ref(this.db, `${Config.dbRootPath}/control/command`), this.isRecording ? "stop" : "start"); }
     startClock() { setInterval(() => this.els.time.innerText = new Date().toLocaleTimeString('zh-TW', { hour12: false }), 1000); }
     getColor(value) { if (value < this.thresholds.a) return Config.COLORS.GREEN; if (value < this.thresholds.b) return Config.COLORS.YELLOW; if (value < this.thresholds.c) return Config.COLORS.ORANGE; return Config.COLORS.RED; }
-    saveThresholdSettings(isSilent = false) { const { a: elA, b: elB, c: elC } = this.els.inputs; const valA = parseFloat(elA.value); const valB = parseFloat(elB.value); const valC = parseFloat(elC.value); if (isNaN(valA) || isNaN(valB) || isNaN(valC)) return; set(ref(this.db, `${Config.dbRootPath}/settings/thresholds`), { a: valA, b: valB, c: valC }); }
+    
+    // 🔥🔥🔥 這裡修復了：加入閾值防呆邏輯 🔥🔥🔥
+    saveThresholdSettings(isSilent = false) { 
+        const { a: elA, b: elB, c: elC } = this.els.inputs;
+        const msgBox = this.els.msgBox;
+        
+        // 重置錯誤樣式
+        [elA, elB, elC].forEach(el => el.classList.remove('input-error'));
+        if (!isSilent) msgBox.innerText = "";
+
+        const valA = parseFloat(elA.value);
+        const valB = parseFloat(elB.value);
+        const valC = parseFloat(elC.value);
+        
+        let error = null;
+
+        // 檢查是否為數字
+        if (isNaN(valA) || isNaN(valB) || isNaN(valC)) {
+             error = "❌ 請填入完整數值";
+        } 
+        // 檢查邏輯：綠 < 黃 < 橙
+        else if (valA >= valB) {
+             elA.classList.add('input-error');
+             error = "❌ 綠色需小於黃色";
+        } else if (valB >= valC) {
+             elB.classList.add('input-error'); 
+             error = "❌ 黃色需小於橙色";
+        }
+
+        if (error) {
+            if (!isSilent) {
+                msgBox.innerText = error;
+                msgBox.style.color = "red";
+            }
+            return; // 驗證失敗，不存檔
+        }
+
+        // 驗證成功，寫入 Firebase
+        set(ref(this.db, `${Config.dbRootPath}/settings/thresholds`), { a: valA, b: valB, c: valC })
+            .then(() => {
+                if (!isSilent) {
+                    msgBox.innerText = "✅ 設定已儲存";
+                    msgBox.style.color = "green";
+                    setTimeout(() => msgBox.innerText = "", 2000);
+                }
+            })
+            .catch(err => {
+                if (!isSilent) {
+                    msgBox.innerText = "❌ 儲存失敗";
+                    msgBox.style.color = "red";
+                }
+            });
+    }
 }
 
 async function main() {
@@ -401,13 +452,12 @@ async function main() {
     onValue(ref(db, `${Config.dbRootPath}/settings/current_config`), (snapshot) => { if (snapshot.val()) uiManager.syncConfigFromBackend(snapshot.val()); });
     onValue(ref(db, `${Config.dbRootPath}/settings/thresholds`), (snapshot) => { uiManager.syncThresholdsFromBackend(snapshot.val()); });
     
-    // 監聽歷史數據 (用於圖表 + 尋找最後有效位置)
+    // 監聽歷史數據
     onValue(ref(db, `${Config.dbRootPath}/history`), (snapshot) => { 
         if(snapshot.exists()) {
             const data = snapshot.val();
             uiManager.updateChart(data);
             
-            // 從歷史資料中找回最後一個有座標的點 (防呆)
             const sorted = Object.values(data).sort((a, b) => a.timestamp.localeCompare(b.timestamp));
             for (let i = sorted.length - 1; i >= 0; i--) {
                 if (sorted[i].lat != null && sorted[i].lon != null) {
@@ -467,14 +517,12 @@ async function main() {
         if (data) {
             lastGpsData = data;
             
-            // 如果有有效座標，也更新 lastValidPosition
             if (data.lat != null && data.lon != null) {
                 lastValidPosition = { lat: data.lat, lon: data.lon };
             }
 
             mapManager.updateCurrentPosition(data.lat, data.lon, document.getElementById('autoCenter').checked);
             
-            // 只要後端有在送資料，就更新面板
             if (backendState !== 'offline' && backendState !== 'stopped') {
                 uiManager.updateRealtimeData(data);
             }
