@@ -99,6 +99,8 @@ class UIManager {
         this.isRecording = false;
         this.chart = null; 
         this.sortedHistoryData = []; 
+        this.chartTitleTextEl = null; 
+
         this.initDOM();
         this.setInterfaceMode('offline', "未連接 Controller", "gray", "offline");
         this.bindEvents();
@@ -150,6 +152,7 @@ class UIManager {
             if (infoPanel) {
                 infoPanel.style.maxHeight = '85vh'; 
                 infoPanel.style.overflowY = 'auto'; 
+                infoPanel.style.overflowX = 'hidden';
                 infoPanel.style.scrollbarWidth = 'thin';
             }
             const targetParent = lastInput.parentElement.parentElement;
@@ -185,10 +188,36 @@ class UIManager {
         const ctx = this.chartCanvas.getContext('2d');
         this.chart = new Chart(ctx, {
             type: 'line',
-            data: { labels: [], datasets: [{ label: '濃度', data: [], borderColor: '#007bff', backgroundColor: 'rgba(0, 123, 255, 0.1)', borderWidth: 2, tension: 0.3, pointRadius: 0, fill: true }] },
+            data: {
+                labels: [],
+                datasets: [{
+                    label: '濃度',
+                    data: [],
+                    borderColor: '#007bff',
+                    backgroundColor: 'rgba(0, 123, 255, 0.1)',
+                    borderWidth: 2,
+                    tension: 0.3,
+                    
+                    // 🔥🔥🔥 修改 1：加大感應區 🔥🔥🔥
+                    pointRadius: 0,           // 平常不顯示點
+                    pointHitRadius: 25,       // 加大感應範圍 (好點很多)
+                    pointHoverRadius: 6,      // 滑鼠移上去時顯示點
+                    
+                    fill: true
+                }]
+            },
             options: {
-                responsive: true, maintainAspectRatio: false, 
+                responsive: true, 
+                maintainAspectRatio: false, 
                 scales: { x: { display: true, ticks: { display: false } }, y: { beginAtZero: true } },
+                
+                // 🔥🔥🔥 修改 2：優化互動模式 🔥🔥🔥
+                interaction: {
+                    mode: 'nearest',  // 靠近就觸發
+                    axis: 'x',        // 鎖定 X 軸 (時間軸) 搜尋
+                    intersect: false  // 不需要精準踩在點上
+                },
+                
                 plugins: {
                     legend: { display: false },
                     zoom: { zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'x' }, pan: { enabled: true, mode: 'x' }, limits: { x: { min: 'original', max: 'original' } } }
@@ -350,7 +379,6 @@ async function main() {
     const uiManager = new UIManager(mapManager, db);
     let backendState = 'offline';
     let lastGpsData = null;
-    // 🔥🔥🔥 修復：記憶最後已知有效位置 🔥🔥🔥
     let lastValidPosition = null; 
 
     onValue(ref(db, `${Config.dbRootPath}/settings/current_config`), (snapshot) => { if (snapshot.val()) uiManager.syncConfigFromBackend(snapshot.val()); });
@@ -362,7 +390,7 @@ async function main() {
             const data = snapshot.val();
             uiManager.updateChart(data);
             
-            // 🔥 從歷史資料中找回最後一個有座標的點 (防呆)
+            // 從歷史資料中找回最後一個有座標的點 (防呆)
             const sorted = Object.values(data).sort((a, b) => a.timestamp.localeCompare(b.timestamp));
             for (let i = sorted.length - 1; i >= 0; i--) {
                 if (sorted[i].lat != null && sorted[i].lon != null) {
@@ -371,7 +399,6 @@ async function main() {
                 }
             }
 
-            // 剛載入時，如果設定為需要自動縮放，就飛過去
             if (localStorage.getItem('should_fit_bounds') === 'true') { 
                 if (lastValidPosition) {
                     mapManager.updateCurrentPosition(lastValidPosition.lat, lastValidPosition.lon, true);
@@ -423,14 +450,13 @@ async function main() {
         if (data) {
             lastGpsData = data;
             
-            // 🔥 如果有有效座標，也更新 lastValidPosition
+            // 如果有有效座標，也更新 lastValidPosition
             if (data.lat != null && data.lon != null) {
                 lastValidPosition = { lat: data.lat, lon: data.lon };
             }
 
             mapManager.updateCurrentPosition(data.lat, data.lon, document.getElementById('autoCenter').checked);
             
-            // 只要後端有在送資料，就更新面板
             if (backendState !== 'offline' && backendState !== 'stopped') {
                 uiManager.updateRealtimeData(data);
             }
@@ -443,7 +469,6 @@ async function main() {
     if (autoCenterBox) { 
         autoCenterBox.addEventListener('change', (e) => { 
             if (e.target.checked) {
-                // 🔥 優先用最新的，沒有就用歷史最後一筆
                 if (lastGpsData && lastGpsData.lat != null) {
                     mapManager.updateCurrentPosition(lastGpsData.lat, lastGpsData.lon, true);
                     mapManager.map.setZoom(Config.ZOOM_LEVEL);

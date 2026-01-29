@@ -76,10 +76,10 @@ class FirebaseManager:
                     if data is None: 
                         if self.running:
                             exit_state = 'timeout'
-                            exit_msg = '程式已停止運作 (GPS連線中斷)'
+                            exit_msg = '程式逾時停止，請重新開始'
                         else:
                             exit_state = 'offline'
-                            exit_msg = '系統已手動關閉'
+                            exit_msg = '程式已手動停止'
                         break
 
                     ref_history.push(data)

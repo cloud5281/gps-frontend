@@ -130,10 +130,10 @@ class SystemController:
                 self.logger.info(f"🔜 預先初始化新專案 ({new_project_name}) 狀態...")
                 db.reference(f'{new_project_name}/status').set({
                     'state': 'switching', 
-                    'message': '專案切換初始化中...'
+                    'message': '專案切換中...'
                 })
             else:
-                self.logger.info(f"📝 專案名稱未變，僅更新參數配置...")
+                self.logger.info(f"📝 僅更新參數配置...")
 
             with open(self.config_file, 'r', encoding='utf-8') as f:
                 config_data = json.load(f)
@@ -157,7 +157,7 @@ class SystemController:
 
             # 3. 重新啟動監聽器與程序
             if old_project_name != new_project_name:
-                self.logger.info(f"🔄 專案變更，正在重啟監聽器...")
+                self.logger.info(f"🔄 專案切換中...")
                 if self.process and self.process.running:
                     self.stop_process()
                 
@@ -169,11 +169,11 @@ class SystemController:
                 if not (self.process and self.process.running):
                     db.reference(f'{new_project_name}/status').set({
                         'state': 'stopped',
-                        'message': '就緒，請按下開始按鈕開始紀錄'
+                        'message': '切換完畢，後端程式已就緒'
                     })
             else:
                 if self.process and self.process.running:
-                    self.logger.info("🔄 偵測到參數變更，重啟子程序以套用設定...")
+                    self.logger.info("🔄 偵測到參數變更，將重新整理以套用設定...")
                     self.stop_process()
                     self.start_process()
 
@@ -248,7 +248,7 @@ class SystemController:
         self.logger.info("🧹 初始化狀態為 Stopped...")
         db.reference(f'{self.cfg.PROJECT_NAME}/status').set({
             'state': 'stopped',
-            'message': '後端程式已就緒 (等待指令)'
+            'message': '後端程式已就緒'
         })
 
         self._push_current_config_to_firebase()
