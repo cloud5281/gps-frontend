@@ -81,6 +81,7 @@ class MapManager {
             }) 
         }).addTo(this.map);
         this.historyLayer = L.layerGroup().addTo(this.map);
+        this.eventLayer = L.layerGroup().addTo(this.map);
 
         const baseMaps = {
             "一般地圖": osmLayer,
@@ -88,11 +89,29 @@ class MapManager {
         };
         const overlayMaps = {
             "顯示目前位置 (小人)": this.marker,
-            "顯示濃度點位（軌跡）": this.historyLayer
+            "顯示註記點位 (圖釘)": this.eventLayer,
+            "顯示濃度點位 (軌跡)": this.historyLayer
         };
 
         L.control.layers(baseMaps, overlayMaps, { position: 'bottomleft' }).addTo(this.map);
         
+        this.map.on('overlayadd overlayremove', (e) => {
+            if (e.name === "顯示註記點位 (圖釘)") {
+                const showEvents = e.type === 'overlayadd'; // 判斷目前是打勾還是取消
+                this.allMarkers.forEach(layer => {
+                    if (layer === this.lastHighlightedLayer) return; // 跳過目前正在點擊查看的高亮點
+                    if (layer.concValue !== undefined) {
+                        const hasEvent = showEvents && !!this.eventsByTime[layer.timestamp];
+                        layer.setStyle({
+                            stroke: hasEvent,
+                            color: hasEvent ? '#000' : 'transparent',
+                            weight: hasEvent ? 2 : 0
+                        });
+                    }
+                });
+            }
+        });
+
         this.pathLine = L.polyline([], {color: 'blue', weight: 4}); 
         this.coordsArray = [];
         this.allMarkers = [];
@@ -143,7 +162,8 @@ class MapManager {
                 popupAnchor: [0, -30]
             });
 
-            pin = L.marker([eventData.lat, eventData.lon], { icon: icon, zIndexOffset: 1000 }).addTo(this.map);
+            pin = L.marker([eventData.lat, eventData.lon], { icon: icon, zIndexOffset: 1000 });
+            this.eventLayer.addLayer(pin);
 
             pin.on('click', (e) => {
                 L.DomEvent.stopPropagation(e);
@@ -169,7 +189,7 @@ class MapManager {
     removeEventPin(timestamp) {
         const pin = this.eventPins.get(timestamp);
         if (pin) {
-            if (this.map.hasLayer(pin)) pin.remove();
+            if (this.eventLayer.hasLayer(pin)) this.eventLayer.removeLayer(pin);
             this.eventPins.delete(timestamp);
         }
     }
@@ -189,8 +209,13 @@ class MapManager {
 
     _resetHighlight() {
         if (this.lastHighlightedLayer) {
+            const showEvents = this.map.hasLayer(this.eventLayer);
+            const hasEvent = showEvents && !!this.eventsByTime[this.lastHighlightedLayer.timestamp];
+            
             this.lastHighlightedLayer.setStyle({
-                stroke: false,
+                stroke: hasEvent,
+                color: hasEvent ? '#000' : 'transparent',
+                weight: hasEvent ? 2 : 0,
                 radius: this.pointRadius, 
                 fillOpacity: 0.9
             });
@@ -350,11 +375,12 @@ class MapManager {
                 color = getColorFn(data.conc);
             }
 
-            const hasEvent = !!this.eventsByTime[data.timestamp];
+            const showEvents = this.map.hasLayer(this.eventLayer);
+            const hasEvent = showEvents && !!this.eventsByTime[data.timestamp];
             
             const circle = L.circleMarker(pos, { 
                 stroke: hasEvent, 
-                color: hasEvent ? '#000' : undefined,
+                color: hasEvent ? '#000' : 'transparent',
                 weight: hasEvent ? 2 : 0,
                 fillColor: color, 
                 fillOpacity: 0.9, 
@@ -404,18 +430,20 @@ class MapManager {
         // 事件圖釘 (📌) 原本的邏輯已經是移除/新增，維持不變即可
         this.eventPins.forEach((pin, timestamp) => {
             if (timestamp <= cutoffTime) {
-                if (!this.map.hasLayer(pin)) pin.addTo(this.map);
+                if (!this.eventLayer.hasLayer(pin)) this.eventLayer.addLayer(pin);
             } else {
-                if (this.map.hasLayer(pin)) pin.remove();
+                if (this.eventLayer.hasLayer(pin)) this.eventLayer.removeLayer(pin);
             }
         });
     }
 
     refreshColors(getColorFn) {
+        const showEvents = this.map.hasLayer(this.eventLayer);
+
         this.allMarkers.forEach((layer) => {
             if (layer.concValue !== undefined) {
                 if (layer === this.lastHighlightedLayer) return; 
-                const hasEvent = !!this.eventsByTime[layer.timestamp];
+                const hasEvent = showEvents && !!this.eventsByTime[layer.timestamp];
                 const color = (layer.isConcValid) ? getColorFn(layer.concValue) : '#999999';
                 
                 // 強制給定完整的 SVG 屬性，防呆 Leaflet 渲染器
